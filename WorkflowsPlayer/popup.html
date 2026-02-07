@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tour Import</title>
+  <style>
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      width: 320px;
+      padding: 20px;
+      margin: 0;
+      background-color: #f7f9fc;
+      text-align: center;
+    }
+
+    h1 {
+      font-size: 20px;
+      color: #333;
+      margin-top: 0;
+    }
+
+    p {
+      color: #666;
+      font-size: 14px;
+      margin-bottom: 25px;
+    }
+
+    .btn-primary {
+      background: #2196F3;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      font-size: 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      width: 100%;
+      font-weight: 500;
+      transition: background 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .btn-primary:hover {
+      background: #1976D2;
+    }
+
+    #status {
+      margin-top: 20px;
+      padding: 15px;
+      background: white;
+      border-radius: 8px;
+      border: 1px solid #e0e0e0;
+      display: none;
+    }
+
+    .success {
+      color: #2e7d32;
+      background: #e8f5e9 !important;
+      border-color: #a5d6a7 !important;
+    }
+
+    .error {
+      color: #c62828;
+      background: #ffebee !important;
+      border-color: #ef9a9a !important;
+    }
+
+    .count {
+      font-size: 24px;
+      font-weight: bold;
+      color: #2196F3;
+      display: block;
+      margin-bottom: 5px;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="authContainer"
+    style="margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 15px; text-align: left;">
+    <div id="loginForm">
+      <div style="margin-bottom: 10px;">
+        <input type="email" id="email" placeholder="Email"
+          style="width: 100%; padding: 8px; margin-bottom: 5px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px;">
+        <input type="password" id="password" placeholder="Contraseña"
+          style="width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px;">
+      </div>
+      <div style="display: flex; gap: 10px;">
+        <button id="btnLogin"
+          style="background: #2196F3; color: white; border: none; padding: 8px; margin-bottom: 0; width: 100%; cursor: pointer; border-radius: 4px;">Entrar</button>
+        <button id="btnRegister"
+          style="background: white; color: #2196F3; border: 1px solid #2196F3; padding: 8px; margin-bottom: 0; width: 100%; cursor: pointer; border-radius: 4px;">Registrar</button>
+      </div>
+      <div id="authMessage" style="color: red; font-size: 12px; margin-top: 5px;"></div>
+    </div>
+    <div id="userInfo" style="display: none; align-items: center; justify-content: space-between;">
+      <span id="userEmail" style="font-weight: 500; font-size: 14px; color: #333;"></span>
+      <button id="btnLogout"
+        style="width: auto; padding: 5px 10px; font-size: 12px; margin: 0; background: #607d8b; color: white; border: none; border-radius: 4px; cursor: pointer;">Salir</button>
+    </div>
+  </div>
+  <h1>Gestor de Guías</h1>
+  <p>Para cargar las guías, selecciona la carpeta donde guardaste los archivos .json</p>
+
+  <!-- Sync Button Removed for Automatic Sync -->
+  <div id="status" style="margin-top: 10px;"></div>
+  <script src="supabase.min.js"></script>
+  <script src="supabase-client.js"></script>
+  <script src="auth.js"></script>
+  <script src="popup.js"></script>
+</body>
+
+</html>

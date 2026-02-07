@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "Tour Guiado con Shepherd",
+  "version": "1.0",
+  "description": "Herramienta de entrenamiento con tours guiados usando Shepherd.js",
+  "permissions": [
+    "activeTab",
+    "scripting",
+    "storage"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "*.json",
+        "shepherd.min.js",
+        "shepherd.css"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
+    }
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "<all_urls>"
+      ],
+      "js": [
+        "supabase.min.js",
+        "supabase-client.js",
+        "shepherd.min.js",
+        "content.js"
+      ],
+      "css": [
+        "overlay.css",
+        "shepherd.css"
+      ],
+      "run_at": "document_end"
+    }
+  ]
+}
