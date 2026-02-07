@@ -161,6 +161,7 @@ btnUpload.addEventListener('click', async () => {
       data: {
         selector: step.selector,
         description: step.description,
+        url: step.url, // Save the specific URL for this step
         tooltipPosition: step.tooltipPosition || "bottom"
       }
     });
@@ -169,6 +170,10 @@ btnUpload.addEventListener('click', async () => {
   const originalText = btnUpload.textContent;
   btnUpload.textContent = '⏳ Guardando...';
   btnUpload.disabled = true;
+
+  console.log("☁️ [Recorder] Iniciando subida...");
+  console.log("👤 [Recorder] User ID:", user.id);
+  console.log("📦 [Recorder] Payload Size:", JSON.stringify(output).length);
 
   try {
     const { error } = await supabaseClient
@@ -185,11 +190,36 @@ btnUpload.addEventListener('click', async () => {
     btnUpload.textContent = '✓ Guardado!';
     btnUpload.style.background = '#66bb6a';
 
+    // Limpiar estado de grabación tras guardar
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]) {
+        chrome.tabs.sendMessage(tabs[0].id, { action: 'clearRecording' });
+      }
+    });
+
+    // Resetear UI del popup
     setTimeout(() => {
       btnUpload.textContent = originalText;
-      btnUpload.style.background = ''; // Reset to class style
+      btnUpload.style.background = '';
       btnUpload.disabled = false;
-    }, 3000);
+
+      // Volver a estado inicial
+      currentWorkflow = null;
+      workflowNameInput.value = '';
+      workflowNameInput.disabled = false;
+      btnStart.style.display = 'block';
+      btnStop.style.display = 'none';
+      btnUpload.style.display = 'none';
+      btnClear.style.display = 'none';
+      stepsCount.style.display = 'none';
+      urlDisplay.style.display = 'none';
+      statusIdle.style.display = 'block';
+      statusRecording.style.display = 'none';
+      statusIdle.innerHTML = '<strong>⏸️ Listo para grabar</strong><br>Introduce los datos y presiona "Iniciar Grabación"';
+      statusIdle.style.background = '#e3f2fd';
+      statusIdle.style.borderColor = '#2196F3';
+      statusIdle.style.color = '#1565c0';
+    }, 2000);
 
   } catch (err) {
     console.error(err);

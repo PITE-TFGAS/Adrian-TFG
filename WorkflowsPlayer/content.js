@@ -8,6 +8,7 @@ let menuOverlay = null;
 // Variables para el seguimiento del elemento actual
 let currentTargetElement = null;
 let animationFrameId = null;
+let isReplaying = false;
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init);
@@ -33,14 +34,43 @@ async function init() {
   setTimeout(async () => {
     try {
       if (chrome.runtime && chrome.runtime.id) {
-        console.log("🔍 [Tour] Iniciando comprobación directa en Supabase...");
+        console.log("🔍 [Tour] Iniciando comprobación...");
 
-        // 1. Get Auth Session (Only thing we read from storage)
+        // 0. Check for invalid context
+        if (!window.supabaseClient && !window.supabase) {
+          console.warn("[Tour] Supabase client not found");
+          return;
+        }
+
+        const client = window.supabaseClient || window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+        // 1. Check for Active Tour State (Resume)
+        const savedState = await loadTourState();
+        if (savedState && savedState.isActive) {
+          console.log("🔄 [Tour] Resumiendo tour activo:", savedState.workflow.name);
+          // Validate URL match for the current step
+          const currentUrl = window.location.href;
+          const nextStep = savedState.workflow.data.drawflow.nodes[savedState.currentStepIndex];
+
+          if (!nextStep) {
+            console.log("⚠️ [Tour] Paso siguiente no encontrado, limpiando estado.");
+            await clearTourState();
+          } else if (urlsMatch(currentUrl, nextStep.data.url)) {
+            // URL matches, resume tour
+            iniciarTourDesdeJSON(savedState.workflow.data, savedState.currentStepIndex);
+            return; // Exit, don't show menu
+          } else {
+            console.log("ℹ️ [Tour] URL no coincide para el paso actual. Esperando navegación...");
+            // CRITICAL: If a tour is active, we STOP here and don't show the general menu.
+            return;
+          }
+        }
+
+        // 2. Get Auth Session (Only thing we read from storage)
         const sessionData = await chrome.storage.local.get(['supabase_session']);
-        const client = window.supabaseClient || supabaseClient;
 
-        if (sessionData && sessionData.supabase_session && client) {
-          // 2. Direct Fetch & Show
+        if (sessionData && sessionData.supabase_session) {
+          // 3. Direct Fetch & Show
           await fetchAndShowWorkflows(sessionData.supabase_session, client);
         } else {
           console.log("ℹ️ [Tour] Sesión no iniciada. No se buscarán guías.");
@@ -52,6 +82,55 @@ async function init() {
   }, 2000);
 }
 
+// --- State Management Functions ---
+
+async function saveTourState(workflow, stepIndex) {
+  await chrome.storage.local.set({
+    'active_tour': {
+      isActive: true,
+      workflow: workflow,
+      currentStepIndex: stepIndex,
+      lastUpdated: Date.now()
+    }
+  });
+  console.log("💾 [Tour] Estado guardado. Paso:", stepIndex);
+}
+
+async function loadTourState() {
+  const result = await chrome.storage.local.get(['active_tour']);
+  return result.active_tour;
+}
+
+async function clearTourState() {
+  await chrome.storage.local.remove(['active_tour']);
+  console.log("🗑️ [Tour] Estado limpiado.");
+}
+
+function urlsMatch(url1, url2) {
+  if (!url1 || !url2) return true;
+  try {
+    const u1 = new URL(url1);
+    const u2 = new URL(url2);
+
+    // Normalize host: ignore www.
+    const host1 = u1.host.replace(/^www\./, "");
+    const host2 = u2.host.replace(/^www\./, "");
+
+    // Normalize path: remove trailing slash
+    const path1 = u1.pathname.replace(/\/$/, "");
+    const path2 = u2.pathname.replace(/\/$/, "");
+
+    const match = host1 === host2 && path1 === path2;
+
+    console.log(`🔍 [Tour] Comparando URLs:\n  Guía: ${url1}\n  Navegador: ${url2}\n  Match: ${match}`);
+    return match;
+  } catch (e) {
+    console.error("Error comparando URLs:", e);
+    return false;
+  }
+}
+
+
 // Nueva función: Fetch directo + Filtrado + Mostrar
 async function fetchAndShowWorkflows(session, client) {
   try {
@@ -62,13 +141,21 @@ async function fetchAndShowWorkflows(session, client) {
         refresh_token: session.refresh_token
       });
       if (authError) console.warn("[Tour] Error restaurando sesión:", authError);
+
+      // Verify strict auth state
+      const { data: { user: authUser }, error: userError } = await client.auth.getUser();
+      console.log("🔍 [Tour] Estado Auth despues de setSession:", authUser?.id);
+      if (!authUser) console.warn("[Tour] ⚠️ CLIENTE NO AUTENTICADO (posible causa de 0 resultados)");
     }
 
     // B. Fetch All Workflows for User (Memory Only)
+    console.log("🔍 [Tour] Buscando guías para usuario:", session.user.id);
     const { data: rows, error } = await client
       .from('workflows')
       .select('*')
       .eq('user_id', session.user.id);
+
+    if (rows) console.log(`🔍 [Tour] Guías encontradas (total): ${rows.length}`);
 
     if (error) {
       console.error("[Tour] Error descargando guías:", error);
@@ -283,7 +370,7 @@ function updateOverlayCutout(element) {
   }
 
   const rect = element.getBoundingClientRect();
-  const padding = 10;
+  const padding = 15;
 
   const clipPath = `polygon(
     0% 0%,
@@ -304,7 +391,10 @@ function updateOverlayCutout(element) {
 
 function updateOverlayOnFrame() {
   if (currentTargetElement) {
-    updateOverlayCutout(currentTargetElement);
+    // Only update if visible to avoid jumpy behavior
+    if (currentTargetElement.offsetParent !== null) {
+      updateOverlayCutout(currentTargetElement);
+    }
   }
 }
 
@@ -399,7 +489,7 @@ function mostrarMensajeScroll(element) {
   });
 }
 
-function iniciarTourDesdeJSON(tourData) {
+function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
   if (typeof Shepherd === 'undefined') {
     alert('Error: El sistema de tutoriales no está disponible');
     return;
@@ -412,7 +502,11 @@ function iniciarTourDesdeJSON(tourData) {
 
   if (tour) tour.complete();
 
-  const sortedNodes = tourData.drawflow.nodes;
+  // Ensure nodes are sorted
+  const sortedNodes = tourData.drawflow.nodes.sort((a, b) => a.id - b.id);
+
+  // Save state immediately when starting (or resuming)
+  saveTourState({ data: tourData, name: tourData.name || "Workflow" }, initialStepIndex);
 
   tour = new Shepherd.Tour({
     useModalOverlay: false,
@@ -422,7 +516,13 @@ function iniciarTourDesdeJSON(tourData) {
     }
   });
 
+  // Solo agregar pasos a partir del índice inicial
+  // Pero necesitamos mantener la referencia a todos para saber cuál es el "siguiente" real
+
   sortedNodes.forEach((node, index) => {
+    // Skip steps before initialStepIndex
+    if (index < initialStepIndex) return;
+
     if (!node.data?.selector) return;
 
     const stepConfig = {
@@ -436,45 +536,72 @@ function iniciarTourDesdeJSON(tourData) {
       buttons: []
     };
 
-    // Botones (Anterior, Siguiente, Finalizar)
+    // Botones
     if (index > 0) {
+      // "Anterior" is tricky with multi-page. For now, basic back.
       stepConfig.buttons.push({
-        text: '← Anterior', action: tour.back, classes: 'shepherd-button-secondary'
+        text: '← Anterior',
+        action: async () => {
+          // Update state for previous step
+          await saveTourState({ data: tourData, name: tourData.name || "Workflow" }, index - 1);
+          tour.back();
+        },
+        classes: 'shepherd-button-secondary'
       });
     }
 
-    if (index < sortedNodes.length - 1) {
-      stepConfig.buttons.push({ text: 'Siguiente →', action: tour.next });
+    const isLastStep = index === sortedNodes.length - 1;
+
+    if (!isLastStep) {
+      // User wants to advance by clicking the element, so we hide the 'Siguiente' button
+      // to avoid confusion, or keep it but focus on the element.
+      // Hiding it for a cleaner experience as requested.
     } else {
-      stepConfig.buttons.push({ text: '✓ Finalizar', action: tour.complete });
+      stepConfig.buttons.push({
+        text: '✓ Finalizar',
+        action: async () => {
+          await clearTourState();
+          tour.complete();
+        }
+      });
     }
 
     // Interceptar para mostrar el botón de "Click to Scroll"
     stepConfig.beforeShowPromise = function () {
       return new Promise(async (resolve) => {
+        // VALIDATE URL AGAIN (Just in case)
+        if (node.data.url && !urlsMatch(node.data.url, window.location.href)) {
+          console.warn("⚠️ [Tour] Paso intentando mostrarse en URL incorrecta");
+          // Determine handling?? 
+          // For now, allow it, but it might fail to find element.
+        }
+
         const element = document.querySelector(node.data.selector);
 
         if (element) {
-          // Solo ocultamos el recorte si REALMENTE necesitamos hacer scroll
-          // Si el elemento ya es visible, mantenemos el recorte (o dejamos que el evento show lo actualice)
           if (!isElementVisible(element)) {
-            updateOverlayCutout(null); // Ocultar para mostrar el aviso limpio
+            updateOverlayCutout(null);
             await mostrarMensajeScroll(element);
           }
         }
-        // Reducimos el timeout para que sea más ágil
         setTimeout(resolve, 50);
       });
     };
 
     tour.addStep(stepConfig);
+
   });
 
-  // Eventos del Tour para manejar el Overlay y Click-to-Advance
+  // Eventos del Tour
   let currentClickHandler = null;
 
   tour.on('show', (event) => {
     const step = event.step;
+    // Find the current node index based on step ID or valid steps
+    const currentStepId = step.id; // "step-X" or ID
+    // We saved state on button click, but let's confirm here?
+    // Actually relying on button click is safer for "Next".
+
     if (step?.options?.attachTo) {
       const el = document.querySelector(step.options.attachTo.element);
       if (el) {
@@ -483,25 +610,69 @@ function iniciarTourDesdeJSON(tourData) {
         window.addEventListener('scroll', handleScrollOrResize, true);
         window.addEventListener('resize', handleScrollOrResize, true);
 
-        // Lógica Click-to-Advance
-        // Limpiamos listener anterior por si acaso
+        // Lógica Click-to-Advance (interceptar acción real)
         if (currentClickHandler) {
-          el.removeEventListener('click', currentClickHandler);
+          el.removeEventListener('click', currentClickHandler, true);
         }
 
-        currentClickHandler = (e) => {
-          // Opcional: e.preventDefault(); si no queremos que haga la acción nativa
-          // Pero el usuario dijo "darle click al elemento", lo que suele implicar usarlo.
-          // Si avanza muy rápido, puede ser confuso. Dejaremos que haga la acción y avance.
+        currentClickHandler = async (e) => {
+          if (isReplaying) return;
+          // Si el clic es en el tooltip, ignorar
+          if (e.target.closest('.shepherd-element')) return;
 
-          if (tour.getCurrentStep() === tour.steps[tour.steps.length - 1]) {
+          // EVITAR navegación inmediata para poder guardar estado
+          e.preventDefault();
+          e.stopPropagation();
+
+          const allSteps = tour.steps;
+          const currentStep = tour.getCurrentStep();
+          if (!currentStep) return;
+
+          // Desvincular inmediatamente para evitar dobles clics
+          el.removeEventListener('click', currentClickHandler, true);
+
+          const globalIndex = sortedNodes.findIndex(n => (n.id || `step-${sortedNodes.indexOf(n)}`) == currentStep.id);
+          const isLast = globalIndex === sortedNodes.length - 1;
+
+          if (isLast) {
+            await clearTourState();
             tour.complete();
           } else {
-            tour.next();
+            const nextIndex = globalIndex + 1;
+            const nextNode = sortedNodes[nextIndex];
+
+            // 1. Guardar estado del SIGUIENTE paso
+            await saveTourState({ data: tourData, name: tourData.name }, nextIndex);
+
+            // 2. Si hay navegación, preparar y cancelar tour actual
+            if (nextNode.data.url && !urlsMatch(nextNode.data.url, window.location.href)) {
+              console.log(`✈️ [Tour] Navegación detectada hacia: ${nextNode.data.url}`);
+              mostrarMensajeNavegacion(nextNode.data.url);
+              tour.cancel();
+            } else {
+              // Avance normal
+              tour.next();
+            }
+
+            // 3. REPRODUCIR la acción original
+            isReplaying = true;
+            setTimeout(() => {
+              if (typeof el.click === 'function') {
+                el.click();
+              } else {
+                const clickEvent = new MouseEvent('click', {
+                  view: window, bubbles: true, cancelable: true
+                });
+                el.dispatchEvent(clickEvent);
+              }
+              // Reset flag
+              setTimeout(() => { isReplaying = false; }, 200);
+            }, 100);
           }
         };
 
-        el.addEventListener('click', currentClickHandler, { once: true }); // once: true para evitar dobles
+        // Escuchar en fase de captura para adelantarnos a otros handlers
+        el.addEventListener('click', currentClickHandler, true);
       }
     }
   });
@@ -510,9 +681,8 @@ function iniciarTourDesdeJSON(tourData) {
     window.removeEventListener('scroll', handleScrollOrResize, true);
     window.removeEventListener('resize', handleScrollOrResize, true);
 
-    // Limpiar click listener
     if (currentTargetElement && currentClickHandler) {
-      currentTargetElement.removeEventListener('click', currentClickHandler);
+      currentTargetElement.removeEventListener('click', currentClickHandler, true);
       currentClickHandler = null;
     }
 
@@ -521,29 +691,68 @@ function iniciarTourDesdeJSON(tourData) {
   });
 
   tour.on('complete', () => {
-    // Asegurar limpieza total
     window.removeEventListener('scroll', handleScrollOrResize, true);
     window.removeEventListener('resize', handleScrollOrResize, true);
 
     if (currentTargetElement && currentClickHandler) {
-      currentTargetElement.removeEventListener('click', currentClickHandler);
+      currentTargetElement.removeEventListener('click', currentClickHandler, true);
     }
     currentClickHandler = null;
     currentTargetElement = null;
 
-    updateOverlayCutout(null); // Quitar recorte
-    mostrarMensajeFinal(tourData.name);
+    updateOverlayCutout(null);
+    clearTourState(); // Ensure cleared
+    mostrarMensajeFinal(tourData.name || "");
   });
 
   tour.on('cancel', () => {
+    // If canceled manually, clear state?
+    // Usually yes. But if it was canceled programmatically for navigation, NO.
+    // We need a flag.
+    // simpler: If we are navigating, we shouldn't trigger 'cancel' cleanup that deletes state.
+    // We can check if 'active_tour' still has a future step index.
+    // For now, let's assume 'cancel' means USER cancel.
+    // Navigation calls tour.cancel() manually? 
+    // Logic: If navigation happens, we simply don't call clearTourState() here if we want to persist.
+
+    // ADJUSTMENT: We won't clear state on cancel. We only clear on 'complete'. 
+    // If user cancels, they might want to resume optionally?
+    // Standard UX: Cancel = Quit.
+    // But our Navigation logic calls tour.cancel().
+    // We will handle "Quit" button explicitly if we ever add one (Close button on modal).
+    // The "X" button triggers 'cancel'.
+
+    // For now, let's NOT clear state on cancel automatically unless we verify intent.
+    // Or we clear it ONLY if it wasn't a navigation event.
+    // Hard to distinguish without a global flag.
+
     window.removeEventListener('scroll', handleScrollOrResize, true);
     window.removeEventListener('resize', handleScrollOrResize, true);
     currentTargetElement = null;
     updateOverlayCutout(null);
+
+    // Explicitly check if we should clear state
+    // For now, we leave state. If user reloads, it might prompt to resume. 
+    // We can add a "Quit" button to the resume prompt if needed.
   });
 
-  console.log(`✓ Iniciando tutorial: ${tourData.name}`);
+  console.log(`✓ Iniciando tutorial: ${tourData.name} desde paso ${initialStepIndex}`);
   setTimeout(() => tour.start(), 500);
+}
+
+function mostrarMensajeNavegacion(nextUrl) {
+  const msg = document.createElement('div');
+  msg.style.cssText = `
+        position: fixed; top: 20px; right: 20px;
+        background: #2196F3; color: white;
+        padding: 15px 25px; border-radius: 50px;
+        z-index: 1000000; font-family: sans-serif;
+        box-shadow: 0 5px 20px rgba(0,0,0,0.3);
+        animation: slideInRight 0.5s forwards;
+    `;
+  msg.innerHTML = `⏳ Esperando navegación...<br><small>Hacia: ${new URL(nextUrl).pathname}</small>`;
+  document.body.appendChild(msg);
+  setTimeout(() => msg.remove(), 5000);
 }
 
 function mostrarMensajeFinal(nombreTutorial) {

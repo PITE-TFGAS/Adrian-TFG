@@ -4,15 +4,14 @@
   left: 0;
   width: 100%;
   height: 100%;
-  background-color: rgba(0, 0, 0, 0.7);
+  background-color: rgba(0, 0, 0, 0.6);
   z-index: 999998;
   pointer-events: none;
+  transition: clip-path 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  will-change: clip-path;
 }
 
-/* Recorte en el overlay para el elemento activo */
-#overlay-extension.has-cutout {
-  /* Usaremos clip-path dinámico desde JavaScript */
-}
+/* Recorte en el overlay para el elemento activo: clip-path se gestiona en JS */
 
 .shepherd-element {
   z-index: 999999 !important;
@@ -90,8 +89,13 @@
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
 }
 
 .modal-content {
@@ -103,11 +107,12 @@
 }
 
 @keyframes slideIn {
-  from { 
+  from {
     transform: translateY(-30px);
     opacity: 0;
   }
-  to { 
+
+  to {
     transform: translateY(0);
     opacity: 1;
   }
