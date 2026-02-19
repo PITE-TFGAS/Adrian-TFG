@@ -153,15 +153,51 @@ function unhighlightElement(event) {
   event.target.style.cursor = '';
 }
 
+// Simular una secuencia completa de clic (mousedown -> mouseup -> click)
+// Esto es necesario para ciertos componentes como desplegables de aerolíneas
+function simulateFullClick(element) {
+  if (!element) return;
+
+  const mousedownEvent = new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window });
+  const mouseupEvent = new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window });
+  const clickEvent = new MouseEvent('click', { bubbles: true, cancelable: true, view: window });
+
+  element.dispatchEvent(mousedownEvent);
+  element.dispatchEvent(mouseupEvent);
+
+  if (typeof element.click === 'function' && element.tagName.toLowerCase() !== 'a') {
+    element.click();
+  } else {
+    element.dispatchEvent(clickEvent);
+  }
+}
+
+// Detectar si un elemento es un campo de entrada editable
+function isInputElement(element) {
+  const tag = element.tagName.toLowerCase();
+  if (tag === 'input') {
+    const type = (element.type || 'text').toLowerCase();
+    // Excluir checkboxes, radios, botones y ficheros que son otro tipo de interacción
+    return !['checkbox', 'radio', 'submit', 'button', 'reset', 'file', 'image'].includes(type);
+  }
+  if (tag === 'textarea') return true;
+  // Divs editables (e.g. rich text editors)
+  if (element.isContentEditable) return true;
+  return false;
+}
+
 // Manejar clic en elemento
 async function handleElementClick(element, x, y) {
   // Generar selector CSS único para el elemento
   const selector = generateUniqueSelector(element);
 
-  // Crear modal para pedir descripción
-  const description = await promptForDescription(element, currentWorkflow.steps.length + 1);
+  // Detectar si es un campo de texto
+  const isInput = isInputElement(element);
 
-  if (description === null) {
+  // Crear modal para pedir descripción (y valor si es input)
+  const result = await promptForDescription(element, currentWorkflow.steps.length + 1, isInput);
+
+  if (result === null) {
     // Usuario canceló
     return;
   }
@@ -172,13 +208,11 @@ async function handleElementClick(element, x, y) {
   // Agregar paso al workflow
   const step = {
     selector: selector,
-    description: description || 'Sin descripción',
-    position: {
-      x: x,
-      y: y
-    },
+    description: result.description || 'Sin descripción',
+    stepType: isInput ? 'input' : 'click',
+    position: { x, y },
     tooltipPosition: tooltipPosition,
-    url: window.location.href, // Capture current URL for multi-page support
+    url: window.location.href,
     timestamp: new Date().toISOString()
   };
 
@@ -188,28 +222,36 @@ async function handleElementClick(element, x, y) {
   // Efecto visual de confirmación
   showConfirmationEffect(element);
 
-  console.log(`✓ Paso ${currentWorkflow.steps.length} grabado:`, step);
+  console.log(`✓ Paso ${currentWorkflow.steps.length} grabado (${step.stepType}):`, step);
 
   // Guardar estado antes de navegar
   await saveState();
 
-  // FINALMENTE: Reproducir la acción original (Navegación)
+  // FINALMENTE: Reproducir la acción original
   setTimeout(() => {
     isReplaying = true;
-    if (typeof element.click === 'function') {
-      element.click();
+    if (isInput) {
+      // Para inputs: solo enfocar el campo para que el usuario pueda seguir escribiendo
+      element.focus();
     } else {
-      // Fallback dispatch
-      const clickEvent = new MouseEvent('click', {
-        view: window,
-        bubbles: true,
-        cancelable: true
-      });
-      element.dispatchEvent(clickEvent);
+      // Usar simulación de secuencia completa para asegurar que se activan desplegables, etc.
+      simulateFullClick(element);
     }
-    // Resetear flag brevemente después
-    setTimeout(() => isReplaying = false, 100);
+    setTimeout(() => isReplaying = false, 200);
   }, 500);
+}
+
+// Detectar si un ID parece ser dinámico (contiene números secuenciales, es muy largo/aleatorio)
+function isDynamicId(id) {
+  if (!id) return true;
+  // IDs que contienen muchos números suelen ser dinámicos (ej: ember123, jstree-4)
+  const numDigits = (id.match(/\d/g) || []).length;
+  if (numDigits > 3) return true;
+  // IDs muy largos generados por frameworks
+  if (id.length > 20) return true;
+  // IDs conocidos de frameworks comunes que son dinámicos
+  if (/^(ember|gui|gen|idx|v-)/i.test(id)) return true;
+  return false;
 }
 
 // Generar selector CSS único y específico
@@ -234,8 +276,8 @@ function generateUniqueSelector(element) {
   while (current && current.nodeType === Node.ELEMENT_NODE) {
     let selector = current.nodeName.toLowerCase();
 
-    // Si tiene ID único, usarlo y detener
-    if (current.id) {
+    // Si tiene ID y no parece dinámico, usarlo y detener
+    if (current.id && !isDynamicId(current.id)) {
       selector = `#${current.id}`;
       path.unshift(selector);
       break;
@@ -266,8 +308,8 @@ function generateUniqueSelector(element) {
     path.unshift(selector);
     current = current.parentElement;
 
-    // Limitar la profundidad para no hacer selectores muy largos
-    if (path.length > 5) {
+    // Limitar la profundidad para no hacer selectores absurdamente largos
+    if (path.length > 10) {
       break;
     }
   }
@@ -471,35 +513,36 @@ function determineTooltipPosition(element) {
 }
 
 // Mostrar modal para pedir descripción
-function promptForDescription(element, stepNumber) {
+function promptForDescription(element, stepNumber, isInput = false) {
   return new Promise((resolve) => {
-    // Crear modal
     const modal = document.createElement('div');
     modal.className = 'recording-modal-overlay';
 
-    // Obtener texto visible del elemento
     const elementText = element.textContent.trim().substring(0, 50);
     const elementTag = element.tagName.toLowerCase();
-    const suggestedDescription = elementText || `Interactuar con ${elementTag}`;
+    const placeholder = element.placeholder || '';
+    const suggestedDescription = isInput
+      ? (placeholder ? `Introduce: ${placeholder}` : `Rellena el campo ${elementTag}`)
+      : (elementText || `Interactuar con ${elementTag}`);
 
     modal.innerHTML = `
       <div class="recording-modal">
-        <h3>📝 Describe este paso</h3>
+        <h3>${isInput ? '⌨️' : '📝'} Describe este paso</h3>
         <div class="step-info">
           <strong>Paso ${stepNumber}</strong>
           <div class="element-preview">
-            Elemento: <code>${elementTag}</code>
-            ${elementText ? `<br>Texto: "${elementText}"` : ''}
+            Elemento: <code>${elementTag}</code>${placeholder ? ` · placeholder: "${placeholder}"` : ''}
+            ${!isInput && elementText ? `<br>Texto: "${elementText}"` : ''}
           </div>
         </div>
         <div class="form-group">
           <label>Descripción para el usuario:</label>
           <textarea 
             id="step-description" 
-            placeholder="Ej: Haz clic en el botón de transferencias"
-            rows="3"
+            placeholder="Ej: Introduce tu número de DNI"
+            rows="2"
           >${suggestedDescription}</textarea>
-          <small>Esta descripción se mostrará durante el tutorial</small>
+          <small style="color:#666;">Esta instrucción se mostrará durante el tutorial</small>
         </div>
         <div class="modal-buttons">
           <button id="btn-cancel" class="btn-secondary">Cancelar</button>
@@ -514,13 +557,8 @@ function promptForDescription(element, stepNumber) {
     const btnCancel = modal.querySelector('#btn-cancel');
     const btnConfirm = modal.querySelector('#btn-confirm');
 
-    // Focus en el textarea y seleccionar todo
-    setTimeout(() => {
-      textarea.focus();
-      textarea.select();
-    }, 100);
+    setTimeout(() => { textarea.focus(); textarea.select(); }, 100);
 
-    // Manejar Enter para confirmar
     textarea.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
@@ -528,15 +566,11 @@ function promptForDescription(element, stepNumber) {
       }
     });
 
-    btnCancel.onclick = () => {
-      modal.remove();
-      resolve(null);
-    };
-
+    btnCancel.onclick = () => { modal.remove(); resolve(null); };
     btnConfirm.onclick = () => {
       const description = textarea.value.trim();
       modal.remove();
-      resolve(description);
+      resolve({ description });
     };
   });
 }

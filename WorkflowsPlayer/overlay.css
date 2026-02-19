@@ -14,7 +14,8 @@
 /* Recorte en el overlay para el elemento activo: clip-path se gestiona en JS */
 
 .shepherd-element {
-  z-index: 999999 !important;
+  z-index: 1000001 !important;
+  margin: 15px !important;
 }
 
 .shepherd-modal-overlay-container {

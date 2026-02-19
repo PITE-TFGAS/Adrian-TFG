@@ -26,6 +26,12 @@ const stepsCount = document.getElementById('stepsCount');
 const countNumber = document.getElementById('countNumber');
 const urlDisplay = document.getElementById('urlDisplay');
 const currentUrl = document.getElementById('currentUrl');
+const tagsGroup = document.getElementById('tagsGroup');
+const tagsInput = document.getElementById('tagsInput');
+const tagsContainer = document.getElementById('tagsContainer');
+
+// Tags management
+let workflowTags = [];
 
 // Inicializar: verificar si hay una grabación activa
 chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
@@ -91,6 +97,48 @@ btnStop.addEventListener('click', async () => {
       desactivarModoGrabacion(response.workflow);
     }
   });
+});
+
+// Tag Management Functions
+function addTag(tagName) {
+  const normalized = tagName.trim().toLowerCase().replace(/\s+/g, '-');
+  if (!normalized || workflowTags.includes(normalized)) return;
+
+  workflowTags.push(normalized);
+  renderTags();
+  tagsInput.value = '';
+}
+
+function removeTag(tagName) {
+  workflowTags = workflowTags.filter(t => t !== tagName);
+  renderTags();
+}
+
+function renderTags() {
+  tagsContainer.innerHTML = '';
+
+  workflowTags.forEach(tag => {
+    const chip = document.createElement('span');
+    chip.className = 'tag-chip';
+    chip.innerHTML = `
+      <span>${tag}</span>
+      <span class="remove-tag" data-tag="${tag}">×</span>
+    `;
+
+    chip.querySelector('.remove-tag').addEventListener('click', () => {
+      removeTag(tag);
+    });
+
+    tagsContainer.appendChild(chip);
+  });
+}
+
+// Tags input event listener
+tagsInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    addTag(tagsInput.value);
+  }
 });
 
 // Auth Logic
@@ -161,8 +209,9 @@ btnUpload.addEventListener('click', async () => {
       data: {
         selector: step.selector,
         description: step.description,
-        url: step.url, // Save the specific URL for this step
-        tooltipPosition: step.tooltipPosition || "bottom"
+        url: step.url,
+        tooltipPosition: step.tooltipPosition || "bottom",
+        stepType: step.stepType || "click"
       }
     });
   });
@@ -176,13 +225,17 @@ btnUpload.addEventListener('click', async () => {
   console.log("📦 [Recorder] Payload Size:", JSON.stringify(output).length);
 
   try {
+    // Prepare tags: always include "review needed" + user tags
+    const finalTags = ['review needed', ...workflowTags];
+
     const { error } = await supabaseClient
       .from('workflows')
       .insert([{
         name: currentWorkflow.name,
         url: currentWorkflow.url,
         data: output,
-        user_id: user.id
+        user_id: user.id,
+        tags: finalTags
       }]);
 
     if (error) throw error;
@@ -199,18 +252,18 @@ btnUpload.addEventListener('click', async () => {
 
     // Resetear UI del popup
     setTimeout(() => {
+      currentWorkflow = null;
+      workflowTags = [];
+      renderTags();
+      btnUpload.style.display = 'none';
+      btnClear.style.display = 'none';
+      tagsGroup.style.display = 'none';
+      btnStart.style.display = 'block';
+      workflowNameInput.disabled = false;
+      workflowNameInput.value = '';
       btnUpload.textContent = originalText;
       btnUpload.style.background = '';
       btnUpload.disabled = false;
-
-      // Volver a estado inicial
-      currentWorkflow = null;
-      workflowNameInput.value = '';
-      workflowNameInput.disabled = false;
-      btnStart.style.display = 'block';
-      btnStop.style.display = 'none';
-      btnUpload.style.display = 'none';
-      btnClear.style.display = 'none';
       stepsCount.style.display = 'none';
       urlDisplay.style.display = 'none';
       statusIdle.style.display = 'block';
@@ -300,11 +353,22 @@ function desactivarModoGrabacion(workflow) {
   isRecording = false;
   currentWorkflow = workflow;
 
+  statusRecording.style.display = 'none';
+  statusIdle.style.display = 'block';
   btnStop.style.display = 'none';
   btnUpload.style.display = 'block';
   btnClear.style.display = 'block';
-  statusRecording.style.display = 'none';
-  statusIdle.style.display = 'block';
+  tagsGroup.style.display = 'block';
+  workflowNameInput.disabled = true;
+
+  // Reset tags for new workflow
+  workflowTags = [];
+  renderTags();
+
+  // Actualizar contador
+  if (workflow.steps && workflow.steps.length > 0) {
+    countNumber.textContent = workflow.steps.length;
+  }
   statusIdle.innerHTML = `
     <strong>✓ Grabación completada</strong><br>
     ${workflow.steps.length} paso(s) registrado(s)
