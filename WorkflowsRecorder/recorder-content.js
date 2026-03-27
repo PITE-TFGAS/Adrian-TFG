@@ -188,57 +188,91 @@ function isInputElement(element) {
 
 // Manejar clic en elemento
 async function handleElementClick(element, x, y) {
-  // Generar selector CSS único para el elemento
   const selector = generateUniqueSelector(element);
+  const isInput  = isInputElement(element);
 
-  // Detectar si es un campo de texto
-  const isInput = isInputElement(element);
-
-  // Crear modal para pedir descripción (y valor si es input)
+  // Mostrar modal de descripción
   const result = await promptForDescription(element, currentWorkflow.steps.length + 1, isInput);
+  if (result === null) return; // Usuario canceló
 
-  if (result === null) {
-    // Usuario canceló
-    return;
-  }
-
-  // Determinar mejor posición para el tooltip
   const tooltipPosition = determineTooltipPosition(element);
-
-  // Agregar paso al workflow
   const step = {
-    selector: selector,
-    description: result.description || 'Sin descripción',
-    stepType: isInput ? 'input' : 'click',
-    position: { x, y },
-    tooltipPosition: tooltipPosition,
-    url: window.location.href,
-    timestamp: new Date().toISOString()
+    selector,
+    description:     result.description || 'Sin descripción',
+    stepType:        isInput ? 'input' : 'click',
+    position:        { x, y },
+    tooltipPosition,
+    url:             window.location.href,
+    timestamp:       new Date().toISOString()
   };
 
-  currentWorkflow.steps.push(step);
-  updateStepsCounter();
+  isReplaying = true;
 
-  // Efecto visual de confirmación
-  showConfirmationEffect(element);
-
-  console.log(`✓ Paso ${currentWorkflow.steps.length} grabado (${step.stepType}):`, step);
-
-  // Guardar estado antes de navegar
-  await saveState();
-
-  // FINALMENTE: Reproducir la acción original
-  setTimeout(() => {
-    isReplaying = true;
-    if (isInput) {
-      // Para inputs: solo enfocar el campo para que el usuario pueda seguir escribiendo
-      element.focus();
-    } else {
-      // Usar simulación de secuencia completa para asegurar que se activan desplegables, etc.
-      simulateFullClick(element);
-    }
+  if (isInput) {
+    // INPUT: sin detección de cambios (el usuario escribe a continuación)
+    element.focus();
     setTimeout(() => isReplaying = false, 200);
-  }, 500);
+    currentWorkflow.steps.push(step);
+    updateStepsCounter();
+    showConfirmationEffect(element);
+    console.log(`✓ Paso ${currentWorkflow.steps.length} grabado (input):`, step);
+    await saveState();
+
+  } else {
+    // CLICK: la página puede navegar → guardar todo en storage ANTES del clic
+
+    // 1. Snapshot del estado actual (antes del clic)
+    const snapBefore = snapshotDOM();
+    console.log('[Recorder] 📸 snapBefore:', snapBefore.visible.size, 'selectores');
+
+    // 2. Añadir el paso al workflow y guardar estado (persiste si la página navega)
+    currentWorkflow.steps.push(step);
+    const stepIndex = currentWorkflow.steps.length - 1;
+    updateStepsCounter();
+    showConfirmationEffect(element);
+
+    // 3. Guardar snapBefore en storage para recuperarlo en la nueva página
+    await new Promise(r => chrome.storage.local.set({
+      pending_snapshot: {
+        visible:   [...snapBefore.visible],
+        text:      snapBefore.text,
+        stepIndex,
+        timestamp: Date.now()
+      }
+    }, r));
+
+    // 4. Guardar estado del workflow (con el paso ya incluido)
+    await saveState();
+
+    // 5. Simular el clic (que probablemente cause navegación)
+    simulateFullClick(element);
+    setTimeout(() => isReplaying = false, 200);
+
+    // 6. Intentar detección en la misma página (para SPAs pushState sin recarga)
+    const ocultarIndicador = mostrarEsperandoCambios();
+    await waitForDOMStability(4000, 500, 1000);
+    ocultarIndicador();
+
+    const snapAfter = snapshotDOM();
+    console.log('[Recorder] 📸 snapAfter:', snapAfter.visible.size, 'selectores');
+
+    const diff    = computeDOMDiff(snapBefore, snapAfter);
+    const hayDiff = diff.appeared.length > 0 || diff.disappeared.length > 0 || diff.newText;
+    console.log('[Recorder] diff in-page → hayDiff:', hayDiff, diff);
+
+    if (hayDiff) {
+      // Encontrado en la misma página → procesar aquí y limpiar storage
+      const expected = await promptForExpectedState(diff);
+      if (expected) {
+        currentWorkflow.steps[stepIndex].expected = expected;
+        await saveState();
+      }
+      await new Promise(r => chrome.storage.local.remove(['pending_snapshot'], r));
+    }
+    // Si no hay diff en esta página, pending_snapshot queda para la nueva página
+
+    console.log(`✓ Paso ${stepIndex + 1} grabado (click):`, currentWorkflow.steps[stepIndex]);
+  }
 }
 
 // Detectar si un ID parece ser dinámico (contiene números secuenciales, es muy largo/aleatorio)
@@ -283,13 +317,21 @@ function generateUniqueSelector(element) {
       break;
     }
 
-    // Agregar clases si las tiene
-    if (current.className && typeof current.className === 'string') {
+    // Agregar clases si las tiene (omitiendo html y body, que suelen tener clases de Modernizr/temas inestables)
+    if (selector !== 'html' && selector !== 'body' && current.className && typeof current.className === 'string') {
+      // Ignorar clases que suelen ser de estado (hover, active) o autogeneradas para scripts
+      const skipClassPattern = /^(ng-|v-|js-|hover|active|focus|visited|link|disabled|enabled|invalid|valid)/i;
+      
       const classes = current.className.split(' ')
-        .filter(c => c.trim() && !c.includes(' '))
+        .filter(c => {
+          const t = c.trim();
+          return t && !t.includes(' ') && !skipClassPattern.test(t);
+        })
         .map(c => c.trim());
+        
       if (classes.length > 0) {
-        selector += '.' + classes.join('.');
+        // Limitar a 3 clases máximo por nivel para evitar selectores kilométricos
+        selector += '.' + classes.slice(0, 3).join('.');
       }
     }
 
@@ -512,16 +554,16 @@ function determineTooltipPosition(element) {
   return 'bottom';
 }
 
-// Mostrar modal para pedir descripción
+// Mostrar modal para pedir descripción del paso
 function promptForDescription(element, stepNumber, isInput = false) {
   return new Promise((resolve) => {
     const modal = document.createElement('div');
     modal.className = 'recording-modal-overlay';
 
-    const elementText = element.textContent.trim().substring(0, 50);
-    const elementTag = element.tagName.toLowerCase();
-    const placeholder = element.placeholder || '';
-    const suggestedDescription = isInput
+    const elementText           = element.textContent.trim().substring(0, 50);
+    const elementTag            = element.tagName.toLowerCase();
+    const placeholder           = element.placeholder || '';
+    const suggestedDescription  = isInput
       ? (placeholder ? `Introduce: ${placeholder}` : `Rellena el campo ${elementTag}`)
       : (elementText || `Interactuar con ${elementTag}`);
 
@@ -531,15 +573,15 @@ function promptForDescription(element, stepNumber, isInput = false) {
         <div class="step-info">
           <strong>Paso ${stepNumber}</strong>
           <div class="element-preview">
-            Elemento: <code>${elementTag}</code>${placeholder ? ` · placeholder: "${placeholder}"` : ''}
+            Elemento: <code>${elementTag}</code>${placeholder ? ` &middot; placeholder: "${placeholder}"` : ''}
             ${!isInput && elementText ? `<br>Texto: "${elementText}"` : ''}
           </div>
         </div>
         <div class="form-group">
           <label>Descripción para el usuario:</label>
-          <textarea 
-            id="step-description" 
-            placeholder="Ej: Introduce tu número de DNI"
+          <textarea
+            id="step-description"
+            placeholder="Ej: Pulsa el botón de solicitar cita"
             rows="2"
           >${suggestedDescription}</textarea>
           <small style="color:#666;">Esta instrucción se mostrará durante el tutorial</small>
@@ -553,44 +595,294 @@ function promptForDescription(element, stepNumber, isInput = false) {
 
     document.body.appendChild(modal);
 
-    const textarea = modal.querySelector('#step-description');
-    const btnCancel = modal.querySelector('#btn-cancel');
+    const textarea   = modal.querySelector('#step-description');
+    const btnCancel  = modal.querySelector('#btn-cancel');
     const btnConfirm = modal.querySelector('#btn-confirm');
 
     setTimeout(() => { textarea.focus(); textarea.select(); }, 100);
 
     textarea.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        btnConfirm.click();
-      }
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); btnConfirm.click(); }
     });
 
-    btnCancel.onclick = () => { modal.remove(); resolve(null); };
-    btnConfirm.onclick = () => {
-      const description = textarea.value.trim();
-      modal.remove();
-      resolve({ description });
-    };
+    btnCancel.onclick  = () => { modal.remove(); resolve(null); };
+    btnConfirm.onclick = () => { modal.remove(); resolve({ description: textarea.value.trim() }); };
   });
 }
 
 // Mostrar efecto visual de confirmación
 function showConfirmationEffect(element) {
-  const rect = element.getBoundingClientRect();
-
+  const rect      = element.getBoundingClientRect();
   const checkmark = document.createElement('div');
-  checkmark.className = 'recording-checkmark';
-  checkmark.style.left = rect.left + rect.width / 2 + 'px';
-  checkmark.style.top = rect.top + rect.height / 2 + 'px';
-  checkmark.innerHTML = '✓';
-
+  checkmark.className  = 'recording-checkmark';
+  checkmark.style.left = rect.left + rect.width  / 2 + 'px';
+  checkmark.style.top  = rect.top  + rect.height / 2 + 'px';
+  checkmark.innerHTML  = '✓';
   document.body.appendChild(checkmark);
-
-  setTimeout(() => {
-    checkmark.remove();
-  }, 1000);
+  setTimeout(() => checkmark.remove(), 1000);
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AUTO-DETECCIÓN DE CAMBIOS EN EL DOM
+// Compara el estado de la página antes y después de un clic para generar
+// automáticamente el campo "expected" sin que el grabador necesite saber nada técnico.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** Comprueba si un elemento pertenece a la UI del recorder (para excluirlo del snapshot). */
+function isForRecorder(el) {
+  return !!(el.closest('#recording-overlay') ||
+            el.closest('.recording-modal-overlay') ||
+            el.id === 'recorder-analyzing');
+}
+
+/** Comprueba si un elemento es visible para el usuario (dimensiones + CSS). */
+function isVisibleElement(el) {
+  if (!el) return false;
+  const rect  = el.getBoundingClientRect();
+  const style = window.getComputedStyle(el);
+  return (
+    rect.width  > 0 &&
+    rect.height > 0 &&
+    style.visibility !== 'hidden' &&
+    style.display    !== 'none'   &&
+    style.opacity    !== '0'
+  );
+}
+
+/**
+ * Toma una instantánea del DOM usando 4 estrategias para cubrir máxima superficie:
+ *  1. Elementos con id         → más fiable, pero muchos sitios no los usan
+ *  2. Campos de formulario por name → muy útiles en formularios multi-paso
+ *  3. Elementos ARIA de alerta/diálogo/estado → detectan mensajes de error/éxito
+ *  4. Contenedores semánticos con clase → sections, forms, fieldsets visibles
+ *
+ * @returns {{ visible: Set<string>, text: string }}
+ */
+function snapshotDOM() {
+  const visible = new Set();
+
+  // Estrategia 1: elementos con id (los más fiables como selectores)
+  document.querySelectorAll('[id]').forEach(el => {
+    if (!isForRecorder(el) && isVisibleElement(el)) {
+      visible.add(`#${el.id}`);
+    }
+  });
+
+  // Estrategia 2: inputs, selects y textareas con atributo name
+  //   → muy comunes en formularios multi-paso (aparecen/desaparecen al avanzar)
+  document.querySelectorAll('input[name], select[name], textarea[name]').forEach(el => {
+    if (!isForRecorder(el) && isVisibleElement(el)) {
+      visible.add(`${el.tagName.toLowerCase()}[name="${el.getAttribute('name')}"]`);
+    }
+  });
+
+  // Estrategia 3: elementos ARIA que señalan mensajes de error, éxito o diálogos
+  //   → fundamentales para detectar si un envío de formulario tuvo error o éxito
+  const ariaSelectors = [
+    '[role="alert"]', '[role="status"]', '[role="dialog"]',
+    '[role="alertdialog"]', '[aria-live]', '[aria-invalid]',
+    '[aria-expanded]'
+  ];
+  document.querySelectorAll(ariaSelectors.join(',')).forEach(el => {
+    if (isForRecorder(el) || !isVisibleElement(el)) return;
+    // Usar id si lo tiene, si no construir clave compuesta
+    if (el.id) {
+      visible.add(`#${el.id}`);
+    } else {
+      const role = el.getAttribute('role') || el.getAttribute('aria-live') || 'live';
+      const snippet = (el.textContent || '').trim().substring(0, 24).replace(/\s+/g, ' ');
+      visible.add(`[role="${role}"]|${snippet}`);
+    }
+  });
+
+  // Estrategia 4: contenedores semánticos con clase
+  document.querySelectorAll('section,article,fieldset,form,dialog,aside,main').forEach(el => {
+    if (isForRecorder(el) || !isVisibleElement(el) || !el.className) return;
+    const cls = el.className.toString().trim().split(/\s+/)[0];
+    if (cls && cls.length >= 3 && cls.length <= 50 && !el.id) visible.add(`${el.tagName.toLowerCase()}.${cls}`);
+  });
+
+  // Estrategia 5: divs con clase CSS significativa (patrón dominante en SPAs)
+  // Excluye clases genéricas de Bootstrap/Tailwind que no distinguen contenido
+  const genericPattern = /^(row|col|container|wrapper|d-|p-|m-|text-|bg-|btn|icon|flex|grid|sr-only|show|hide|active|fade|modal-|ng-|v-|js-)/ ;
+  document.querySelectorAll('div[class]').forEach(el => {
+    if (isForRecorder(el) || !isVisibleElement(el) || el.id) return;
+    const classes = el.className.toString().trim().split(/\s+/);
+    const sig = classes.find(c => c.length >= 4 && c.length <= 50 && !genericPattern.test(c));
+    if (sig) visible.add(`div.${sig}`);
+  });
+
+  console.log('[Recorder] snapshot →', visible.size, 'selectores |', [...visible].slice(0, 6));
+  return { visible, text: document.body.innerText || '' };
+}
+
+/**
+ * Compara dos snapshots y devuelve qué selectores aparecieron, desaparecieron y qué texto es nuevo.
+ * @returns {{ appeared: string[], disappeared: string[], newText: string }}
+ */
+function computeDOMDiff(before, after) {
+  const appeared    = [];
+  const disappeared = [];
+
+  after.visible.forEach(sel  => { if (!before.visible.has(sel)) appeared.push(sel); });
+  before.visible.forEach(sel => { if (!after.visible.has(sel))  disappeared.push(sel); });
+
+  // Detectar texto nuevo: líneas de más de 4 caracteres que no estaban antes
+  const beforeLines = new Set(
+    before.text.split('\n').map(l => l.trim()).filter(l => l.length > 4)
+  );
+  const newLines = after.text.split('\n')
+    .map(l => l.trim())
+    .filter(l => l.length > 4 && !beforeLines.has(l));
+  const newText = newLines.slice(0, 3).join(' ').trim().substring(0, 120);
+
+  return { appeared, disappeared, newText };
+}
+
+/**
+ * Espera a que el DOM deje de mutar durante `stableMs` milisegundos
+ * o hasta alcanzar el timeout máximo `maxMs`.
+ * Mucho más fiable que un setTimeout fijo en SPAs que tienen animaciones o cargas asíncronas.
+ *
+ * @param {number} maxMs    - Tiempo máximo total de espera (default 4000 ms)
+ * @param {number} stableMs - Tiempo sin mutaciones para considerar el DOM estable (default 400 ms)
+ * @returns {Promise<void>}
+ */
+function waitForDOMStability(maxMs = 4000, stableMs = 500, minMs = 1000) {
+  return new Promise(resolve => {
+    const startTime = Date.now();
+    let stableTimer = null;
+    let finished    = false;
+
+    const finish = () => {
+      if (finished) return; // evitar doble llamada
+      finished = true;
+      clearTimeout(stableTimer);
+      observer.disconnect();
+      console.log(`[Recorder] DOM estable tras ${Date.now() - startTime}ms`);
+      resolve();
+    };
+
+    const resetTimer = () => {
+      clearTimeout(stableTimer);
+      const elapsed = Date.now() - startTime;
+      const wait    = Math.max(stableMs, minMs - elapsed);
+      stableTimer   = setTimeout(finish, wait);
+    };
+
+    const observer = new MutationObserver(resetTimer);
+    observer.observe(document.body, {
+      childList: true,
+      subtree:   true,
+      attributes: true,
+      attributeFilter: ['style', 'class', 'hidden', 'aria-hidden', 'aria-expanded', 'disabled']
+    });
+
+    // Timeout máximo de seguridad
+    setTimeout(finish, maxMs);
+    // Arrancar primer timer
+    resetTimer();
+  });
+}
+
+/**
+ * Muestra un indicador "Analizando cambios..." mientras esperamos.
+ * Devuelve una función para ocultarlo.
+ */
+function mostrarEsperandoCambios() {
+  const el = document.createElement('div');
+  el.id = 'recorder-analyzing';
+  el.style.cssText = `
+    position:fixed; bottom:20px; left:50%; transform:translateX(-50%);
+    background:#1565c0; color:white;
+    padding:12px 24px; border-radius:50px;
+    font-family:sans-serif; font-size:14px;
+    z-index:1000002; box-shadow:0 4px 16px rgba(0,0,0,0.3);
+  `;
+  el.textContent = '🔍 Analizando cambios en la página...';
+  document.body.appendChild(el);
+  return () => {
+    el.style.opacity = '0';
+    el.style.transition = 'opacity 0.3s ease';
+    setTimeout(() => el.remove(), 300);
+  };
+}
+
+/**
+ * Muestra un modal amigable con el diff detectado y pregunta si guardar la comprobación.
+ * @returns {Promise<Object|null>} objeto "expected" o null si el usuario omite
+ */
+function promptForExpectedState(diff) {
+  return new Promise((resolve) => {
+    const modal = document.createElement('div');
+    modal.className = 'recording-modal-overlay';
+
+    const liStyle = `margin:4px 0;padding:4px 8px;background:#f5f5f5;
+      border-radius:4px;font-family:monospace;font-size:12px;word-break:break-all;`;
+
+    const htmlAppeared = diff.appeared.length > 0
+      ? diff.appeared.map(s => `<li style="${liStyle}">${s}</li>`).join('')
+      : '<li style="color:#999;font-size:12px;">Ninguno detectado</li>';
+
+    const htmlDisappeared = diff.disappeared.length > 0
+      ? diff.disappeared.map(s => `<li style="${liStyle}">${s}</li>`).join('')
+      : '<li style="color:#999;font-size:12px;">Ninguno detectado</li>';
+
+    modal.innerHTML = `
+      <div class="recording-modal" style="max-width:460px;">
+        <div style="font-size:32px;text-align:center;margin-bottom:8px;">🔍</div>
+        <h3 style="text-align:center;margin:0 0 6px 0;">Hemos detectado cambios en la página</h3>
+        <p style="text-align:center;color:#555;font-size:13px;margin:0 0 16px 0;">
+          ¿Guardamos esta comprobación para verificar que el paso se completó correctamente?
+        </p>
+
+        <div style="margin-bottom:10px;">
+          <strong style="font-size:13px;color:#2e7d32;">✅ Elementos que aparecieron:</strong>
+          <ul style="margin:6px 0 0 0;padding:0;list-style:none;">${htmlAppeared}</ul>
+        </div>
+
+        <div style="margin-bottom:10px;">
+          <strong style="font-size:13px;color:#c62828;">🚫 Elementos que desaparecieron:</strong>
+          <ul style="margin:6px 0 0 0;padding:0;list-style:none;">${htmlDisappeared}</ul>
+        </div>
+
+        ${diff.newText ? `
+        <div style="margin-bottom:14px;">
+          <strong style="font-size:13px;color:#1565c0;">💬 Texto nuevo detectado:</strong>
+          <p style="margin:6px 0 0 0;padding:6px 10px;background:#e3f2fd;
+            border-radius:4px;font-size:13px;color:#0d47a1;">
+            &ldquo;${diff.newText}&rdquo;
+          </p>
+        </div>` : ''}
+
+        <p style="font-size:12px;color:#888;text-align:center;margin:0 0 14px 0;">
+          Si los cambios no corresponden a este paso, pulsa &ldquo;Omitir&rdquo;.
+        </p>
+
+        <div class="modal-buttons">
+          <button id="btn-skip-expected" class="btn-secondary">Omitir</button>
+          <button id="btn-save-expected" class="btn-primary">✅ Guardar comprobación</button>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    modal.querySelector('#btn-skip-expected').onclick = () => { modal.remove(); resolve(null); };
+    modal.querySelector('#btn-save-expected').onclick = () => {
+      modal.remove();
+      const expected = {};
+      if (diff.appeared.length    > 0) expected.visible = diff.appeared;
+      if (diff.disappeared.length > 0) expected.hidden  = diff.disappeared;
+      if (diff.newText)                expected.text    = diff.newText;
+      resolve(expected);
+    };
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FIN AUTO-DETECCIÓN
+// ─────────────────────────────────────────────────────────────────────────────
 
 // --- Persistencia del Estado ---
 const STATE_KEY = 'recorder_state';
@@ -641,6 +933,56 @@ chrome.storage.local.get([STATE_KEY], (result) => {
       document.addEventListener('mouseout', unhighlightElement, true);
 
       console.log("✅ Grabación reanudada tras navegación");
+
+      // ── Comprobar si hay un snapshot pendiente de la página anterior ───────────
+      // Ocurre cuando: se grabó un clic que causó navegación a esta página.
+      // El snapshot "antes" se guardó antes del clic; ahora tomamos el "después".
+      chrome.storage.local.get(['pending_snapshot'], async (res) => {
+        const pending = res.pending_snapshot;
+        if (!pending) return;
+
+        const age = Date.now() - (pending.timestamp || 0);
+        if (age > 15000) {
+          // Snapshot demasiado antiguo (>15s), ignorar
+          chrome.storage.local.remove(['pending_snapshot']);
+          return;
+        }
+
+        console.log('[Recorder] 🔄 Snapshot pendiente encontrado (', Math.round(age/1000), 's ago). Analizando cambios...');
+
+        // Esperar a que la nueva página cargue y se estabilice
+        const ocultarIndicador = mostrarEsperandoCambios();
+        await waitForDOMStability(4000, 600, 1500);
+        ocultarIndicador();
+
+        // Reconstruir snapBefore (el Set se serializó como array)
+        const snapBefore = { visible: new Set(pending.visible), text: pending.text };
+        const snapAfter  = snapshotDOM();
+
+        console.log('[Recorder] 📸 snapBefore:', snapBefore.visible.size, 'selectores (página anterior)');
+        console.log('[Recorder] 📸 snapAfter:', snapAfter.visible.size, 'selectores (nueva página)');
+
+        const diff    = computeDOMDiff(snapBefore, snapAfter);
+        const hayDiff = diff.appeared.length > 0 || diff.disappeared.length > 0 || diff.newText;
+        console.log('[Recorder] diff post-navegación → hayDiff:', hayDiff, diff);
+
+        // Limpiar siempre el pending_snapshot
+        chrome.storage.local.remove(['pending_snapshot']);
+
+        if (!hayDiff) return;
+
+        // Mostrar modal al grabador con los cambios detectados
+        const expected = await promptForExpectedState(diff);
+        if (!expected) return;
+
+        // Actualizar el paso correspondiente con el expected state
+        if (currentWorkflow && currentWorkflow.steps && currentWorkflow.steps[pending.stepIndex]) {
+          currentWorkflow.steps[pending.stepIndex].expected = expected;
+          await saveState();
+          console.log('[Recorder] ✅ expected state guardado en paso', pending.stepIndex);
+        }
+      });
+      // ───────────────────────────────────────────────────────────
     }
   }
 });

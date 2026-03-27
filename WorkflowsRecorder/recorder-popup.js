@@ -211,7 +211,8 @@ btnUpload.addEventListener('click', async () => {
         description: step.description,
         url: step.url,
         tooltipPosition: step.tooltipPosition || "bottom",
-        stepType: step.stepType || "click"
+        stepType: step.stepType || "click",
+        expected: step.expected || undefined
       }
     });
   });

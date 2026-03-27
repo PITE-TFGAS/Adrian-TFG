@@ -78,44 +78,9 @@ async function init() {
 
         if (savedState && savedState.isActive) {
           console.log("🔄 [Tour] Detectado tour persistente:", savedState.workflow.name, "Paso:", savedState.currentStepIndex);
-          const currentUrl = window.location.href;
-          const nextStep = savedState.workflow.data?.drawflow?.nodes?.[savedState.currentStepIndex];
-
-          if (nextStep) {
-            const matches = urlsMatch(currentUrl, nextStep.data.url);
-            // Si la navegación fue hace menos de 8 segundos, la consideramos "esperada" aunque el flag se haya perdido
-            const isRecentlyUpdated = (Date.now() - (savedState.lastUpdated || 0)) < 8000;
-            const navigationExpected = savedState.isExpectedNavigation || isRecentlyUpdated;
-
-            if (matches) {
-              if (navigationExpected) {
-                console.log("✅ [Tour] Reanudación confirmada. Paso:", savedState.currentStepIndex);
-                // Reseteamos el flag de navegación ya que ya hemos llegado
-                await saveTourState(savedState.workflow, savedState.currentStepIndex, false);
-                iniciarTourDesdeJSON(savedState.workflow.data || savedState.workflow, savedState.currentStepIndex);
-                tourResumed = true;
-              } else {
-                console.log("🚫 [Tour] Recarga manual o externa detectada. Limpiando tour.");
-                await clearTourState();
-              }
-            } else {
-              if (navigationExpected) {
-                console.log("⏳ [Tour] URL distinta pero acción de tour detectada. Esperando navegación...");
-                setTimeout(async () => {
-                  const updatedState = await loadTourState();
-                  // Si después de 15s seguimos en URL incorrecta y NADIE ha retomado el tour, limpiamos.
-                  if (updatedState && updatedState.isActive && !urlsMatch(window.location.href, nextStep.data.url)) {
-                    console.log("⏳ [Tour] Tiempo agotado. Cancelando tour pendiente.");
-                    await clearTourState();
-                    // location.reload(); // Evitamos recarga automática para no marear
-                  }
-                }, 15000);
-                return;
-              } else {
-                console.log("ℹ️ [Tour] Tour activo en otra pestaña/URL. Continuando con menú local.");
-              }
-            }
-          }
+          // Reanudación simple sin bloqueos por URL
+          iniciarTourDesdeJSON(savedState.workflow.data || savedState.workflow, savedState.currentStepIndex);
+          tourResumed = true;
         }
 
         if (tourResumed) return;
@@ -167,26 +132,35 @@ async function clearTourState() {
 }
 
 function urlsMatch(url1, url2) {
-  if (!url1 || !url2) return true; // Considerar que coinciden si alguna es nula/vacía
+  if (!url1 || !url2) return true;
   try {
     const u1 = new URL(url1);
     const u2 = new URL(url2);
 
-    // Normalize host: ignore www.
     const host1 = u1.host.replace(/^www\./, "").toLowerCase();
     const host2 = u2.host.replace(/^www\./, "").toLowerCase();
 
-    // Normalize path: ignore trailing slash and multiple slashes
-    const path1 = u1.pathname.replace(/\/+$/, "").replace(/\/+/g, "/").toLowerCase();
-    const path2 = u2.pathname.replace(/\/+$/, "").replace(/\/+/g, "/").toLowerCase();
+    // Normalizar pathname: 
+    // 1. Quitar trailing slashes y múltiples slashes
+    // 2. IMPORTANTE: Quitar session IDs (como ;jsessionid=...) que rompen la comparación en webs gubernamentales/antiguas
+    const normalizePath = (p) => p
+      .split(';')[0] // Quitar ;jsessionid o similares
+      .replace(/\/+$/, "")
+      .replace(/\/+/g, "/")
+      .toLowerCase();
+
+    const path1 = normalizePath(u1.pathname);
+    const path2 = normalizePath(u2.pathname);
 
     const match = host1 === host2 && path1 === path2;
+    
+    if (!match && host1 === host2) {
+      console.log(`[Tour] 🔍 URL mismatch en mismo host. \n  Grabado: ${path1} \n  Actual: ${path2}`);
+    }
 
-    // console.log(`🔍 [Tour] Comparación URL: ${match ? "✅" : "❌"}\n  Guía: ${url1}\n  Nav: ${url2}`);
     return match;
   } catch (e) {
-    console.warn(`[Tour] Error al comparar URLs: ${url1}, ${url2}`, e);
-    return false; // Si hay error, no coinciden
+    return false;
   }
 }
 
@@ -639,7 +613,23 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
           const nextIdx = index + 1;
           const nextN = sortedNodes[nextIdx];
           const needsNav = nextN.data.url && !urlsMatch(nextN.data.url, window.location.href);
+
+          // ── 1. GUARDADO PREVENTIVO ──────────────────────────────────────
           await saveTourState({ data: tourData, name: tourData.name || 'Workflow' }, nextIdx, needsNav);
+
+          // ── 2. VALIDACIÓN ───────────────────────────────────────────────
+          if (node.data.expected) {
+            console.log("[Validación] ⏳ Verificando estado tras input...");
+            const ok = await waitForExpectedState(node.data.expected);
+            if (!ok) {
+              console.warn("[Validación] ❌ Falló. Revirtiendo al paso actual.");
+              await saveTourState({ data: tourData, name: tourData.name || 'Workflow' }, index, false);
+              handleError(node);
+              return;
+            }
+          }
+          // ───────────────────────────────────────────────────────────────
+
           if (needsNav) {
             mostrarMensajeNavegacion(nextN.data.url);
             tour.cancel();
@@ -664,10 +654,6 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
 
     stepConfig.beforeShowPromise = function () {
       return new Promise(async (resolve) => {
-        if (node.data.url && !urlsMatch(node.data.url, window.location.href)) {
-          console.warn("⚠️ [Tour] Paso intentando mostrarse en URL incorrecta");
-        }
-
         // Reintento de búsqueda en beforeShowPromise (máximo 2s)
         let element = null;
         let retryStart = Date.now();
@@ -776,18 +762,41 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
                   const nextN = sortedNodes[nextIdx];
                   const needsNav = nextN.data.url && !urlsMatch(nextN.data.url, window.location.href);
 
-                  await saveTourState({ data: tourData, name: tourData.name }, nextIdx, true);
+                  // ── 1. GUARDADO PREVENTIVO (Antes del Clic) ──────────────────────
+                  // Guardamos el estado del SIGUIENTE paso antes de clicar.
+                  // Si el clic provoca una navegación instantánea, el estado ya está a salvo.
+                  await saveTourState({ data: tourData, name: tourData.name }, nextIdx, needsNav);
+
+                  // ── 2. DISPARAR EL CLIC ──────────────────────────────────────────
+                  setTimeout(() => {
+                    try { 
+                      simulateFullClick(el); 
+                    } catch(err) {
+                      console.error("❌ [Tour] Error al simular clic:", err);
+                    } finally {
+                      setTimeout(() => isReplaying = false, 600);
+                    }
+                  }, 50);
+
+                  // ── 3. VALIDACIÓN (Solo si el contexto sigue vivo) ───────────────
+                  if (currentNode?.data?.expected) {
+                    console.log("[Validación] ⏳ Verificando si el clic tuvo el efecto deseado...");
+                    const ok = await waitForExpectedState(currentNode.data.expected);
+                    if (!ok) {
+                      console.warn("[Validación] ❌ No se detectaron los cambios esperados. Revirtiendo tour.");
+                      await saveTourState({ data: tourData, name: tourData.name }, globalIdxClick, false);
+                      handleError(currentNode);
+                      return;
+                    }
+                    console.log("[Validación] ✅ Estado confirmado.");
+                  }
 
                   if (needsNav) {
-                    mostrarMensajeNavegacion(nextN.data.url);
+                    mostrarMensajeNavegacion(nextN.data.url || "");
                     tour.cancel();
                   } else {
                     tour.next();
                   }
-
-                  setTimeout(() => {
-                    try { simulateFullClick(el); } finally { setTimeout(() => isReplaying = false, 600); }
-                  }, 200);
                 }
               } catch (err) {
                 console.error("❌ [Tour] Error en clic:", err);
@@ -923,12 +932,260 @@ function mostrarMensajeFinal(nombreTutorial) {
 }
 
 
-// Estilos globales
-const style = document.createElement('style');
-style.textContent = `
-  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-  @keyframes fadeOut { from { opacity: 1; } to { opacity: 0; } }
-  @keyframes slideUp { from { transform: translateY(50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-`;
-document.head.appendChild(style);
-console.log('✓ Sistema cargado');
+// ─────────────────────────────────────────────────────────────────────────────
+// SISTEMA DE VALIDACIÓN DE ESTADO ESPERADO
+// Comprueba si la interfaz ha alcanzado el estado esperado tras ejecutar un paso.
+// Los pasos del workflow pueden incluir un campo opcional "expected":
+//   { visible: ["#sel1"], hidden: ["#sel2"], text: "Texto esperado" }
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Comprueba de forma síncrona si el estado actual de la interfaz
+ * coincide con el estado esperado definido en el paso.
+ *
+ * @param {Object} expected - { visible: string[], hidden: string[], text: string }
+ * @returns {boolean} true si se cumple todo el estado esperado
+ */
+function checkExpectedState(expected) {
+  if (!expected) return true;
+
+  // 1. Comprobar selectores que deben estar VISIBLES
+  if (expected.visible && expected.visible.length > 0) {
+    for (const selector of expected.visible) {
+      const el = document.querySelector(selector);
+      if (!el) {
+        console.log(`[Validación] ❌ Elemento visible faltante: ${selector}`);
+        return false;
+      }
+      const rect = el.getBoundingClientRect();
+      const style = window.getComputedStyle(el);
+      const isVisible = (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        style.visibility !== 'hidden' &&
+        style.display !== 'none'
+      );
+      if (!isVisible) {
+        console.log(`[Validación] ❌ Elemento no es visible: ${selector}`);
+        return false;
+      }
+    }
+  }
+
+  // 2. Comprobar selectores que deben estar OCULTOS
+  if (expected.hidden && expected.hidden.length > 0) {
+    for (const selector of expected.hidden) {
+      const el = document.querySelector(selector);
+      if (el) {
+        const rect = el.getBoundingClientRect();
+        const style = window.getComputedStyle(el);
+        const isVisible = (
+          rect.width > 0 &&
+          rect.height > 0 &&
+          style.visibility !== 'hidden' &&
+          style.display !== 'none'
+        );
+        if (isVisible) {
+          console.log(`[Validación] ❌ Elemento debería estar oculto pero es visible: ${selector}`);
+          return false;
+        }
+      }
+    }
+  }
+
+  // 3. Comprobar texto esperado (Fuzzy Matching)
+  if (expected.text) {
+    const bodyText = (document.body.innerText || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const targetText = expected.text.replace(/\s+/g, ' ').trim().toLowerCase();
+    
+    if (!bodyText.includes(targetText)) {
+      console.log(`[Validación] ❌ Texto esperado no encontrado. Buscando: "${targetText.substring(0, 30)}..."`);
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Espera de forma asíncrona (polling cada 200 ms) hasta que el estado
+ * esperado se cumpla o se agote el tiempo límite.
+ *
+ * @param {Object} expected - { visible: string[], hidden: string[], text: string }
+ * @param {number} [timeout=4000] - Tiempo máximo de espera en ms
+ * @returns {Promise<boolean>} true si el estado se cumplió, false si se agotó el tiempo
+ */
+function waitForExpectedState(expected, timeout = 4000) {
+  if (!expected) return Promise.resolve(true);
+
+  return new Promise((resolve) => {
+    const interval = 200;
+    let elapsed = 0;
+
+    const check = () => {
+      if (checkExpectedState(expected)) {
+        resolve(true);
+        return;
+      }
+      elapsed += interval;
+      if (elapsed >= timeout) {
+        console.warn('[Validación] ⏰ Tiempo agotado esperando el estado esperado.', expected);
+        resolve(false);
+        return;
+      }
+      setTimeout(check, interval);
+    };
+
+    check();
+  });
+}
+
+/**
+ * Hace scroll hasta el elemento y añade una animación temporal de resaltado.
+ *
+ * @param {Element} element - Elemento DOM a resaltar
+ */
+function highlightElement(element) {
+  if (!element) return;
+
+  // Scroll suave hasta el elemento
+  element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+  // Guardar estilos originales para restaurarlos
+  const originalOutline = element.style.outline;
+  const originalBoxShadow = element.style.boxShadow;
+  const originalTransition = element.style.transition;
+
+  // Aplicar resaltado visual llamativo
+  element.style.transition = 'outline 0.2s ease, box-shadow 0.2s ease';
+  element.style.outline = '3px solid #e53935';
+  element.style.boxShadow = '0 0 0 6px rgba(229, 57, 53, 0.35)';
+
+  // Efecto de parpadeo para captar la atención
+  let pulseCount = 0;
+  const pulseInterval = setInterval(() => {
+    pulseCount++;
+    element.style.opacity = pulseCount % 2 === 0 ? '1' : '0.6';
+    if (pulseCount >= 6) {
+      clearInterval(pulseInterval);
+      element.style.opacity = '1';
+    }
+  }, 300);
+
+  // Restaurar estilos originales tras 3.5 s
+  setTimeout(() => {
+    element.style.outline = originalOutline;
+    element.style.boxShadow = originalBoxShadow;
+    element.style.transition = originalTransition;
+  }, 3500);
+}
+
+/**
+ * Gestiona el error cuando el estado esperado no se cumple.
+ *
+ * CASO A: Se detecta un campo inválido via :invalid → lo resalta y muestra
+ *         mensaje de revisión puntual.
+ * CASO B: No hay campo inválido detectable → muestra mensaje de revisión
+ *         global y vuelve al primer paso visible en la página actual.
+ *
+ * @param {Object} node - Nodo del workflow que no superó la validación
+ */
+function handleError(node) {
+  console.warn('[Validación] ❌ Estado esperado no alcanzado. Activando recuperación guiada.');
+
+  // ── CASO A: campo inválido detectable ───────────────────────────────────
+  const invalidField = document.querySelector(':invalid');
+  if (invalidField) {
+    console.log('[Validación] 🔎 Campo inválido encontrado:', invalidField);
+    highlightElement(invalidField);
+    mostrarMensajeError(
+      '⚠️ Vamos a revisarlo juntos 🙂',
+      'Este dato puede no ser correcto.',
+      'Corrígelo y vuelve a pulsar el botón.'
+    );
+    return;
+  }
+
+  // ── CASO B: sin error específico detectable ──────────────────────────────
+  console.log('[Validación] 🔁 Sin campo inválido. Volviendo al primer paso de la página.');
+  mostrarMensajeError(
+    '😊 No pasa nada',
+    'Vamos a revisar los datos desde el principio.',
+    ''
+  );
+
+  // Volver al primer paso cuya URL coincide con la actual
+  if (tour) {
+    const steps = tour.steps;
+    if (steps && steps.length > 0) {
+      // El primer paso del tour activo corresponde al primero en esta página
+      tour.show(steps[0].id);
+    }
+  }
+}
+
+/**
+ * Muestra un modal de error no intrusivo al usuario.
+ *
+ * @param {string} titulo  - Título principal del mensaje
+ * @param {string} mensaje - Mensaje descriptivo
+ * @param {string} [ayuda] - Texto de ayuda adicional (opcional)
+ */
+function mostrarMensajeError(titulo, mensaje, ayuda = '') {
+  // Evitar duplicados
+  const existente = document.getElementById('tour-error-toast');
+  if (existente) existente.remove();
+
+  const toast = document.createElement('div');
+  toast.id = 'tour-error-toast';
+  toast.style.cssText = `
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #fff;
+    color: #333;
+    border-left: 6px solid #e53935;
+    border-radius: 12px;
+    padding: 20px 30px;
+    font-family: sans-serif;
+    font-size: 18px;
+    z-index: 1000001;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.25);
+    max-width: 480px;
+    width: 90%;
+    animation: slideUpToast 0.4s ease;
+  `;
+
+  toast.innerHTML = `
+    <div style="font-weight: bold; font-size: 20px; margin-bottom: 8px;">${titulo}</div>
+    <div style="color: #555; margin-bottom: ${ayuda ? '6px' : '0'}">${mensaje}</div>
+    ${ayuda ? `<div style="color: #888; font-size: 15px;">${ayuda}</div>` : ''}
+  `;
+
+  // Añadir keyframe si no existe
+  if (!document.getElementById('tour-error-style')) {
+    const s = document.createElement('style');
+    s.id = 'tour-error-style';
+    s.textContent = `
+      @keyframes slideUpToast {
+        from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+        to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+      }
+    `;
+    document.head.appendChild(s);
+  }
+
+  document.body.appendChild(toast);
+
+  // Auto-eliminar tras 5 s
+  setTimeout(() => {
+    if (toast && toast.parentNode) {
+      toast.style.opacity = '0';
+      toast.style.transition = 'opacity 0.4s ease';
+      setTimeout(() => toast.remove(), 400);
+    }
+  }, 5000);
+}
+
+console.log('✓ Sistema cargado');
