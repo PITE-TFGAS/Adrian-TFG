@@ -78,9 +78,70 @@ async function init() {
 
         if (savedState && savedState.isActive) {
           console.log("🔄 [Tour] Detectado tour persistente:", savedState.workflow.name, "Paso:", savedState.currentStepIndex);
-          // Reanudación simple sin bloqueos por URL
-          iniciarTourDesdeJSON(savedState.workflow.data || savedState.workflow, savedState.currentStepIndex);
-          tourResumed = true;
+
+          const workflowData = savedState.workflow.data || savedState.workflow;
+          const allNodes = (workflowData.drawflow?.nodes || []).sort((a, b) => a.id - b.id);
+
+          // ── VALIDACIÓN PERSISTENTE (cross-reload) ─────────────────────
+          // Si hay un paso pendiente de validar (porque la página navegó antes
+          // de que pudiéramos comprobar el 'expected'), lo validamos ahora.
+          if (savedState.pendingValidationIdx != null) {
+            const pIdx = savedState.pendingValidationIdx;
+            const pendingNode = allNodes[pIdx] || null;
+
+            if (pendingNode?.data?.expected) {
+              console.log(`🔎 [Tour] Validando resultado del paso ${pIdx} tras recarga...`);
+              const isValid = checkExpectedState(pendingNode.data.expected);
+
+              if (!isValid) {
+                // El expected falló. Necesitamos volver al PRIMER PASO de la
+                // página del formulario (la URL del paso con 'expected'),
+                // no al primer paso de la URL actual (que puede ser distinta).
+                const pendingStepUrl = pendingNode.data?.url || null;
+
+                let revertIdx = pIdx; // fallback: el propio paso con 'expected'
+                if (pendingStepUrl) {
+                  const firstForPendingUrl = allNodes.findIndex(
+                    n => n.data?.url && urlsMatch(n.data.url, pendingStepUrl)
+                  );
+                  if (firstForPendingUrl !== -1) revertIdx = firstForPendingUrl;
+                }
+
+                console.warn(`⚠️ [Tour] Validación FALLÓ. Revirtiendo al paso ${revertIdx} (primer paso de la URL del formulario).`);
+                await saveTourState(savedState.workflow, revertIdx, false, null);
+
+                const yaSomosEnLaURL = pendingStepUrl && urlsMatch(pendingStepUrl, window.location.href);
+
+                if (!yaSomosEnLaURL && pendingStepUrl) {
+                  // La navegación ya ocurrió. Mostramos el error y navegamos
+                  // directamente a la URL del formulario (más fiable que history.back()).
+                  // En la siguiente carga, init() reanuda desde revertIdx.
+                  handleError(pendingNode);
+                  setTimeout(() => { window.location.href = pendingStepUrl; }, 2000);
+                } else {
+                  // Seguimos en la misma página: reiniciamos el tour desde revertIdx.
+                  iniciarTourDesdeJSON(workflowData, revertIdx);
+                  setTimeout(() => handleError(pendingNode), 800);
+                }
+                tourResumed = true;
+              } else {
+                console.log("✅ [Tour] Validación cross-reload exitosa. Continuando en paso", savedState.currentStepIndex);
+                // Limpiar solo el flag de pendiente
+                await saveTourState(savedState.workflow, savedState.currentStepIndex, savedState.isExpectedNavigation, null);
+                iniciarTourDesdeJSON(workflowData, savedState.currentStepIndex);
+                tourResumed = true;
+              }
+            } else {
+              // No hay expected que validar, limpiar flag y continuar
+              await saveTourState(savedState.workflow, savedState.currentStepIndex, savedState.isExpectedNavigation, null);
+              iniciarTourDesdeJSON(workflowData, savedState.currentStepIndex);
+              tourResumed = true;
+            }
+          } else {
+            iniciarTourDesdeJSON(workflowData, savedState.currentStepIndex);
+            tourResumed = true;
+          }
+          // ──────────────────────────────────────────────────────────────
         }
 
         if (tourResumed) return;
@@ -96,29 +157,19 @@ async function init() {
 
 // --- State Management Functions ---
 
-async function saveTourState(workflow, stepIndex, isExpectedNavigation = false) {
-  // Optimización: Solo guardar si el estado es diferente o si se fuerza la navegación esperada
-  const currentState = await loadTourState();
-  const currentWorkflowId = currentState?.workflow?.data?.id || currentState?.workflow?.id;
-  const newWorkflowId = workflow?.data?.id || workflow?.id;
-
-  if (currentState &&
-    currentWorkflowId === newWorkflowId &&
-    currentState.currentStepIndex === stepIndex &&
-    currentState.isExpectedNavigation === isExpectedNavigation) {
-    return;
-  }
-
+async function saveTourState(workflow, stepIndex, isExpectedNavigation = false, pendingValidationIdx = null) {
   await chrome.storage.local.set({
     'active_tour': {
       isActive: true,
       workflow: workflow,
       currentStepIndex: stepIndex,
       isExpectedNavigation: isExpectedNavigation,
+      pendingValidationIdx: pendingValidationIdx,
       lastUpdated: Date.now()
     }
   });
-  console.log("💾 [Tour] Estado guardado. Paso:", stepIndex, "Navegación esperada:", isExpectedNavigation);
+  const pendingMsg = pendingValidationIdx != null ? ` | Pendiente validar paso: ${pendingValidationIdx}` : '';
+  console.log(`💾 [Tour] Estado guardado. Paso: ${stepIndex}${pendingMsg}`);
 }
 
 async function loadTourState() {
@@ -153,7 +204,7 @@ function urlsMatch(url1, url2) {
     const path2 = normalizePath(u2.pathname);
 
     const match = host1 === host2 && path1 === path2;
-    
+
     if (!match && host1 === host2) {
       console.log(`[Tour] 🔍 URL mismatch en mismo host. \n  Grabado: ${path1} \n  Actual: ${path2}`);
     }
@@ -760,39 +811,53 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
                 } else {
                   const nextIdx = globalIdxClick + 1;
                   const nextN = sortedNodes[nextIdx];
+                  const hasExpected = !!currentNode?.data?.expected;
                   const needsNav = nextN.data.url && !urlsMatch(nextN.data.url, window.location.href);
 
-                  // ── 1. GUARDADO PREVENTIVO (Antes del Clic) ──────────────────────
-                  // Guardamos el estado del SIGUIENTE paso antes de clicar.
-                  // Si el clic provoca una navegación instantánea, el estado ya está a salvo.
-                  await saveTourState({ data: tourData, name: tourData.name }, nextIdx, needsNav);
+                  // ── 1. GUARDADO PREVENTIVO ────────────────────────────────────────
+                  // Si el paso tiene 'expected', siempre guardamos pendingValidationIdx
+                  // independientemente de si hay navegación o no.
+                  // - Con navegación: init() en la nueva página valida el expected.
+                  // - Sin navegación: el paso 3 valida aquí y limpia el flag si pasa.
+                  // - Form POST que recarga la misma URL: init() detecta el flag y valida.
+                  const pendingIdx = hasExpected ? globalIdxClick : null;
+                  await saveTourState(
+                    { data: tourData, name: tourData.name || 'Workflow' },
+                    nextIdx,
+                    needsNav,
+                    pendingIdx
+                  );
 
                   // ── 2. DISPARAR EL CLIC ──────────────────────────────────────────
                   setTimeout(() => {
-                    try { 
-                      simulateFullClick(el); 
-                    } catch(err) {
+                    try {
+                      simulateFullClick(el);
+                    } catch (err) {
                       console.error("❌ [Tour] Error al simular clic:", err);
                     } finally {
                       setTimeout(() => isReplaying = false, 600);
                     }
                   }, 50);
 
-                  // ── 3. VALIDACIÓN (Solo si el contexto sigue vivo) ───────────────
-                  if (currentNode?.data?.expected) {
-                    console.log("[Validación] ⏳ Verificando si el clic tuvo el efecto deseado...");
+                  // ── 3. VALIDACIÓN INMEDIATA (si la página NO navega) ─────────────
+                  // Si hay navegación, esta parte no llega a ejecutarse (la página
+                  // muere). En ese caso, init() en la nueva página manejará la validación.
+                  if (hasExpected && !needsNav) {
+                    console.log("[Validación] ⏳ Verificando efecto del clic (sin navegación)...");
                     const ok = await waitForExpectedState(currentNode.data.expected);
                     if (!ok) {
-                      console.warn("[Validación] ❌ No se detectaron los cambios esperados. Revirtiendo tour.");
-                      await saveTourState({ data: tourData, name: tourData.name }, globalIdxClick, false);
+                      console.warn("[Validación] ❌ Estado no alcanzado. Revirtiendo al paso", globalIdxClick);
+                      await saveTourState({ data: tourData, name: tourData.name || 'Workflow' }, globalIdxClick, false, null);
                       handleError(currentNode);
                       return;
                     }
-                    console.log("[Validación] ✅ Estado confirmado.");
+                    console.log("[Validación] ✅ Estado confirmado. Limpiando flag pendiente.");
+                    // Limpiar el flag (no era necesario porque needsNav=false, pero por limpieza)
+                    await saveTourState({ data: tourData, name: tourData.name || 'Workflow' }, nextIdx, false, null);
                   }
 
                   if (needsNav) {
-                    mostrarMensajeNavegacion(nextN.data.url || "");
+                    mostrarMensajeNavegacion(nextN.data.url || '');
                     tour.cancel();
                   } else {
                     tour.next();
@@ -997,7 +1062,7 @@ function checkExpectedState(expected) {
   if (expected.text) {
     const bodyText = (document.body.innerText || '').replace(/\s+/g, ' ').trim().toLowerCase();
     const targetText = expected.text.replace(/\s+/g, ' ').trim().toLowerCase();
-    
+
     if (!bodyText.includes(targetText)) {
       console.log(`[Validación] ❌ Texto esperado no encontrado. Buscando: "${targetText.substring(0, 30)}..."`);
       return false;
@@ -1188,4 +1253,4 @@ function mostrarMensajeError(titulo, mensaje, ayuda = '') {
   }, 5000);
 }
 
-console.log('✓ Sistema cargado');
+console.log('✓ Sistema cargado');
