@@ -196,19 +196,30 @@ async function handleElementClick(element, x, y) {
   if (result === null) return; // Usuario canceló
 
   const tooltipPosition = determineTooltipPosition(element);
+
+  // Si el paso es dinámico, usar el selector del contenedor padre
+  let finalSelector = selector;
+  let finalStepType = isInput ? 'input' : 'click';
+  if (result.isDynamic) {
+    const container = findDynamicContainer(element);
+    finalSelector   = generateUniqueSelector(container);
+    finalStepType   = 'dynamic';
+    console.log('[Recorder] 🎯 Paso dinámico. Contenedor seleccionado:', finalSelector);
+  }
+
   const step = {
-    selector,
-    description:     result.description || 'Sin descripción',
-    stepType:        isInput ? 'input' : 'click',
-    position:        { x, y },
+    selector:     finalSelector,
+    description:  result.description || 'Sin descripción',
+    stepType:     finalStepType,
+    position:     { x, y },
     tooltipPosition,
-    url:             window.location.href,
-    timestamp:       new Date().toISOString()
+    url:          window.location.href,
+    timestamp:    new Date().toISOString()
   };
 
   isReplaying = true;
 
-  if (isInput) {
+  if (finalStepType === 'input') {
     // INPUT: sin detección de cambios (el usuario escribe a continuación)
     element.focus();
     setTimeout(() => isReplaying = false, 200);
@@ -217,6 +228,18 @@ async function handleElementClick(element, x, y) {
     showConfirmationEffect(element);
     console.log(`✓ Paso ${currentWorkflow.steps.length} grabado (input):`, step);
     await saveState();
+
+  } else if (finalStepType === 'dynamic') {
+    // DYNAMIC: grabar el contenedor, no simular clic (el usuario eligirá en reproducción)
+    currentWorkflow.steps.push(step);
+    updateStepsCounter();
+    showConfirmationEffect(element);
+    console.log(`✓ Paso ${currentWorkflow.steps.length} grabado (dynamic):`, step);
+    await saveState();
+    setTimeout(() => isReplaying = false, 200);
+
+    // Simular el clic original para que la página siga su flujo normal durante la grabación
+    simulateFullClick(element);
 
   } else {
     // CLICK: la página puede navegar → guardar todo en storage ANTES del clic
@@ -234,10 +257,11 @@ async function handleElementClick(element, x, y) {
     // 3. Guardar snapBefore en storage para recuperarlo en la nueva página
     await new Promise(r => chrome.storage.local.set({
       pending_snapshot: {
-        visible:   [...snapBefore.visible],
-        text:      snapBefore.text,
+        visible:     [...snapBefore.visible],
+        text:        snapBefore.text,
         stepIndex,
-        timestamp: Date.now()
+        saveExpected: result.saveExpected || false, // la elección del usuario
+        timestamp:   Date.now()
       }
     }, r));
 
@@ -260,16 +284,17 @@ async function handleElementClick(element, x, y) {
     const hayDiff = diff.appeared.length > 0 || diff.disappeared.length > 0 || diff.newText;
     console.log('[Recorder] diff in-page → hayDiff:', hayDiff, diff);
 
-    if (hayDiff) {
-      // Encontrado en la misma página → procesar aquí y limpiar storage
-      const expected = await promptForExpectedState(diff);
-      if (expected) {
-        currentWorkflow.steps[stepIndex].expected = expected;
-        await saveState();
-      }
-      await new Promise(r => chrome.storage.local.remove(['pending_snapshot'], r));
+    if (hayDiff && result.saveExpected) {
+      // Guardar automáticamente sin preguntar — el usuario ya marcó el checkbox
+      const expected = {};
+      if (diff.appeared.length    > 0) expected.visible = diff.appeared;
+      if (diff.disappeared.length > 0) expected.hidden  = diff.disappeared;
+      if (diff.newText)                expected.text    = diff.newText;
+      currentWorkflow.steps[stepIndex].expected = expected;
+      await saveState();
+      console.log('[Recorder] ✅ Expected state guardado automáticamente.');
     }
-    // Si no hay diff en esta página, pending_snapshot queda para la nueva página
+    await new Promise(r => chrome.storage.local.remove(['pending_snapshot'], r));
 
     console.log(`✓ Paso ${stepIndex + 1} grabado (click):`, currentWorkflow.steps[stepIndex]);
   }
@@ -524,6 +549,45 @@ function generateXPathSelector(element) {
   return tempSelector;
 }
 
+/**
+ * Encuentra el contenedor padre más adecuado para un paso dinámico.
+ * REGLAS:
+ *  1. Solo keywords de COMPONENTES UI estructurales (no contenido/dominio).
+ *     Palabras como 'airport', 'city', 'day' causaban que se seleccionaran
+ *     elementos ocultos con d-none, rompiendo el polling del player.
+ *  2. Nunca usar position:absolute/fixed (esos elementos no están en DOM siempre).
+ *  3. Fallback: 3 niveles arriba (ancestro estable y siempre visible).
+ */
+function findDynamicContainer(element) {
+  const dynamicRoles    = ['dialog', 'listbox', 'grid', 'combobox', 'menu',
+                           'tree', 'calendar', 'datepicker', 'search'];
+  // Solo palabras que describen el COMPONENTE, no el contenido
+  const dynamicKeywords = ['picker', 'calendar', 'datepicker', 'dropdown',
+                           'popover', 'popup', 'modal', 'overlay', 'flyout',
+                           'autocomplete', 'suggest', 'combobox',
+                           'selector', 'panel', 'search'];
+
+  let current = element.parentElement;
+  for (let i = 0; i < 8 && current && current !== document.body; i++) {
+    const role    = (current.getAttribute('role') || '').toLowerCase();
+    const classes = (typeof current.className === 'string' ? current.className : '').toLowerCase();
+    const id      = (current.id || '').toLowerCase();
+
+    if (dynamicRoles.some(r    => role.includes(r)))                    return current;
+    if (dynamicKeywords.some(k => classes.includes(k) || id.includes(k))) return current;
+
+    current = current.parentElement;
+  }
+
+  // Fallback: 3 niveles arriba — apunta a un contenedor estable siempre en DOM
+  let fallback = element;
+  for (let i = 0; i < 3 && fallback.parentElement && fallback.parentElement !== document.body; i++) {
+    fallback = fallback.parentElement;
+  }
+  return fallback;
+}
+
+
 // Determinar mejor posición para el tooltip
 function determineTooltipPosition(element) {
   const rect = element.getBoundingClientRect();
@@ -560,10 +624,10 @@ function promptForDescription(element, stepNumber, isInput = false) {
     const modal = document.createElement('div');
     modal.className = 'recording-modal-overlay';
 
-    const elementText           = element.textContent.trim().substring(0, 50);
-    const elementTag            = element.tagName.toLowerCase();
-    const placeholder           = element.placeholder || '';
-    const suggestedDescription  = isInput
+    const elementText          = element.textContent.trim().substring(0, 50);
+    const elementTag           = element.tagName.toLowerCase();
+    const placeholder          = element.placeholder || '';
+    const suggestedDescription = isInput
       ? (placeholder ? `Introduce: ${placeholder}` : `Rellena el campo ${elementTag}`)
       : (elementText || `Interactuar con ${elementTag}`);
 
@@ -586,6 +650,21 @@ function promptForDescription(element, stepNumber, isInput = false) {
           >${suggestedDescription}</textarea>
           <small style="color:#666;">Esta instrucción se mostrará durante el tutorial</small>
         </div>
+        ${!isInput ? `
+        <div class="form-group" style="margin-top:8px;border-top:1px solid #eee;padding-top:10px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:500;">
+            <input type="checkbox" id="save-expected-check" style="width:16px;height:16px;cursor:pointer;">
+            📊 Guardar comprobación de cambios esperados
+          </label>
+          <small style="color:#888;margin-left:24px;">Si está marcado, se guardarán los cambios que ocurran tras el clic para verificar que el paso funcionó.</small>
+        </div>` : ''}
+        <div class="form-group" style="margin-top:8px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:500;">
+            <input type="checkbox" id="dynamic-step-check" style="width:16px;height:16px;cursor:pointer;">
+            🔄 Paso dinámico (el usuario elige libremente: fecha, destino…)
+          </label>
+          <small style="color:#888;margin-left:24px;">El tutorial resaltará el área completa sin fijar una opción concreta.</small>
+        </div>
         <div class="modal-buttons">
           <button id="btn-cancel" class="btn-secondary">Cancelar</button>
           <button id="btn-confirm" class="btn-primary">Confirmar</button>
@@ -595,9 +674,11 @@ function promptForDescription(element, stepNumber, isInput = false) {
 
     document.body.appendChild(modal);
 
-    const textarea   = modal.querySelector('#step-description');
-    const btnCancel  = modal.querySelector('#btn-cancel');
-    const btnConfirm = modal.querySelector('#btn-confirm');
+    const textarea      = modal.querySelector('#step-description');
+    const dynCheck      = modal.querySelector('#dynamic-step-check');
+    const saveExpCheck  = modal.querySelector('#save-expected-check');
+    const btnCancel     = modal.querySelector('#btn-cancel');
+    const btnConfirm    = modal.querySelector('#btn-confirm');
 
     setTimeout(() => { textarea.focus(); textarea.select(); }, 100);
 
@@ -606,7 +687,14 @@ function promptForDescription(element, stepNumber, isInput = false) {
     });
 
     btnCancel.onclick  = () => { modal.remove(); resolve(null); };
-    btnConfirm.onclick = () => { modal.remove(); resolve({ description: textarea.value.trim() }); };
+    btnConfirm.onclick = () => {
+      modal.remove();
+      resolve({
+        description:  textarea.value.trim(),
+        isDynamic:    dynCheck?.checked    || false,
+        saveExpected: saveExpCheck?.checked || false
+      });
+    };
   });
 }
 
@@ -809,68 +897,64 @@ function mostrarEsperandoCambios() {
 }
 
 /**
- * Muestra un modal amigable con el diff detectado y pregunta si guardar la comprobación.
- * @returns {Promise<Object|null>} objeto "expected" o null si el usuario omite
+ * Muestra una barra flotante NO BLOQUEANTE en la parte inferior de la pantalla
+ * para preguntar si guardar la comprobación de estado.
+ * NO roba el foco ni cierra dropdowns/autocompletes.
  */
 function promptForExpectedState(diff) {
   return new Promise((resolve) => {
-    const modal = document.createElement('div');
-    modal.className = 'recording-modal-overlay';
+    const prev = document.getElementById('recorder-expected-bar');
+    if (prev) prev.remove();
 
-    const liStyle = `margin:4px 0;padding:4px 8px;background:#f5f5f5;
-      border-radius:4px;font-family:monospace;font-size:12px;word-break:break-all;`;
-
-    const htmlAppeared = diff.appeared.length > 0
-      ? diff.appeared.map(s => `<li style="${liStyle}">${s}</li>`).join('')
-      : '<li style="color:#999;font-size:12px;">Ninguno detectado</li>';
-
-    const htmlDisappeared = diff.disappeared.length > 0
-      ? diff.disappeared.map(s => `<li style="${liStyle}">${s}</li>`).join('')
-      : '<li style="color:#999;font-size:12px;">Ninguno detectado</li>';
-
-    modal.innerHTML = `
-      <div class="recording-modal" style="max-width:460px;">
-        <div style="font-size:32px;text-align:center;margin-bottom:8px;">🔍</div>
-        <h3 style="text-align:center;margin:0 0 6px 0;">Hemos detectado cambios en la página</h3>
-        <p style="text-align:center;color:#555;font-size:13px;margin:0 0 16px 0;">
-          ¿Guardamos esta comprobación para verificar que el paso se completó correctamente?
-        </p>
-
-        <div style="margin-bottom:10px;">
-          <strong style="font-size:13px;color:#2e7d32;">✅ Elementos que aparecieron:</strong>
-          <ul style="margin:6px 0 0 0;padding:0;list-style:none;">${htmlAppeared}</ul>
-        </div>
-
-        <div style="margin-bottom:10px;">
-          <strong style="font-size:13px;color:#c62828;">🚫 Elementos que desaparecieron:</strong>
-          <ul style="margin:6px 0 0 0;padding:0;list-style:none;">${htmlDisappeared}</ul>
-        </div>
-
-        ${diff.newText ? `
-        <div style="margin-bottom:14px;">
-          <strong style="font-size:13px;color:#1565c0;">💬 Texto nuevo detectado:</strong>
-          <p style="margin:6px 0 0 0;padding:6px 10px;background:#e3f2fd;
-            border-radius:4px;font-size:13px;color:#0d47a1;">
-            &ldquo;${diff.newText}&rdquo;
-          </p>
-        </div>` : ''}
-
-        <p style="font-size:12px;color:#888;text-align:center;margin:0 0 14px 0;">
-          Si los cambios no corresponden a este paso, pulsa &ldquo;Omitir&rdquo;.
-        </p>
-
-        <div class="modal-buttons">
-          <button id="btn-skip-expected" class="btn-secondary">Omitir</button>
-          <button id="btn-save-expected" class="btn-primary">✅ Guardar comprobación</button>
-        </div>
-      </div>
+    const bar = document.createElement('div');
+    bar.id = 'recorder-expected-bar';
+    bar.style.cssText = `
+      position: fixed;
+      bottom: 0; left: 0; right: 0;
+      background: #1e1e2e;
+      color: #fff;
+      padding: 12px 20px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      z-index: 2147483647;
+      font-family: system-ui, sans-serif;
+      font-size: 13px;
+      box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
+      border-top: 2px solid #7c3aed;
     `;
 
-    document.body.appendChild(modal);
+    const summary = [
+      diff.appeared.length    > 0 ? `${diff.appeared.length} aparecieron`    : '',
+      diff.disappeared.length > 0 ? `${diff.disappeared.length} desaparecieron` : '',
+      diff.newText            ? 'texto nuevo'                                  : ''
+    ].filter(Boolean).join(' · ');
 
-    modal.querySelector('#btn-skip-expected').onclick = () => { modal.remove(); resolve(null); };
-    modal.querySelector('#btn-save-expected').onclick = () => {
-      modal.remove();
+    bar.innerHTML = `
+      <span style="flex:1;">🔍 <strong>Cambios detectados:</strong> ${summary} — ¿Guardar comprobación?</span>
+      <button id="rec-bar-skip" style="
+        padding:6px 14px;border:1px solid #555;background:transparent;
+        color:#ccc;border-radius:6px;cursor:pointer;font-size:13px;
+      ">Omitir</button>
+      <button id="rec-bar-save" style="
+        padding:6px 14px;background:#7c3aed;border:none;
+        color:#fff;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;
+      ">✅ Guardar</button>
+    `;
+
+    document.body.appendChild(bar);
+
+    const autoClose = setTimeout(() => { bar.remove(); resolve(null); }, 15000);
+
+    bar.querySelector('#rec-bar-skip').onclick = () => {
+      clearTimeout(autoClose);
+      bar.remove();
+      resolve(null);
+    };
+
+    bar.querySelector('#rec-bar-save').onclick = () => {
+      clearTimeout(autoClose);
+      bar.remove();
       const expected = {};
       if (diff.appeared.length    > 0) expected.visible = diff.appeared;
       if (diff.disappeared.length > 0) expected.hidden  = diff.disappeared;
@@ -969,17 +1053,21 @@ chrome.storage.local.get([STATE_KEY], (result) => {
         // Limpiar siempre el pending_snapshot
         chrome.storage.local.remove(['pending_snapshot']);
 
-        if (!hayDiff) return;
+        if (!hayDiff || !pending.saveExpected) {
+          // No hay cambios, o el usuario no quiso guardarlos — no hacer nada
+          return;
+        }
 
-        // Mostrar modal al grabador con los cambios detectados
-        const expected = await promptForExpectedState(diff);
-        if (!expected) return;
+        // Guardar automáticamente el expected state (sin mostrar ningún prompt)
+        const expected = {};
+        if (diff.appeared.length    > 0) expected.visible = diff.appeared;
+        if (diff.disappeared.length > 0) expected.hidden  = diff.disappeared;
+        if (diff.newText)                expected.text    = diff.newText;
 
-        // Actualizar el paso correspondiente con el expected state
         if (currentWorkflow && currentWorkflow.steps && currentWorkflow.steps[pending.stepIndex]) {
           currentWorkflow.steps[pending.stepIndex].expected = expected;
           await saveState();
-          console.log('[Recorder] ✅ expected state guardado en paso', pending.stepIndex);
+          console.log('[Recorder] ✅ Expected state guardado (cross-page) en paso', pending.stepIndex);
         }
       });
       // ───────────────────────────────────────────────────────────

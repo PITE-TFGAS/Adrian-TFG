@@ -772,11 +772,58 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
             String(n.id) === String(step.id) ||
             `step-${sortedNodes.indexOf(n)}` === String(step.id)
           );
-          const currentNode = sortedNodes[globalIdx] || null;
-          const isInputStep = currentNode?.data?.stepType === 'input';
+          const currentNode   = sortedNodes[globalIdx] || null;
+          const isInputStep   = currentNode?.data?.stepType === 'input';
+          const isDynamicStep = currentNode?.data?.stepType === 'dynamic';
 
           if (isInputStep) {
             el.focus();
+          } else if (isDynamicStep) {
+            // PASO DINÁMICO: el usuario elige libremente (fecha, destino…)
+            // No interceptamos el clic — solo lo observamos para avanzar el tour.
+            console.log('[Tour] 🔄 Paso dinámico activo. Esperando selección del usuario...');
+            currentClickHandler = async (e) => {
+              if (isReplaying) return;
+              if (e.target.closest('.shepherd-element')) return;
+
+              const currentStep = tour.getCurrentStep();
+              if (!currentStep) return;
+
+              isReplaying = true;
+              try {
+                // NO preventDefault/stopPropagation → el clic funciona con normalidad
+                const gIdx = sortedNodes.findIndex(n =>
+                  String(n.id) === String(currentStep.id) ||
+                  `step-${sortedNodes.indexOf(n)}` === String(currentStep.id)
+                );
+                if (gIdx === -1) { isReplaying = false; return; }
+
+                const isLast = gIdx === sortedNodes.length - 1;
+                if (isLast) {
+                  await clearTourState();
+                  setTimeout(() => { tour.complete(); setTimeout(() => isReplaying = false, 600); }, 300);
+                } else {
+                  const nextIdx  = gIdx + 1;
+                  const nextN    = sortedNodes[nextIdx];
+                  const needsNav = nextN.data.url && !urlsMatch(nextN.data.url, window.location.href);
+                  await saveTourState({ data: tourData, name: tourData.name || 'Workflow' }, nextIdx, needsNav, null);
+                  // Esperar 300 ms para que la UI actualice antes de avanzar el tour
+                  setTimeout(() => {
+                    if (needsNav) {
+                      mostrarMensajeNavegacion(nextN.data.url || '');
+                      tour.cancel();
+                    } else {
+                      tour.next();
+                    }
+                    setTimeout(() => isReplaying = false, 600);
+                  }, 300);
+                }
+              } catch (err) {
+                console.error('❌ [Tour] Error en paso dinámico:', err);
+                isReplaying = false;
+              }
+            };
+            el.addEventListener('click', currentClickHandler, true);
           } else {
             // Lógica Click-to-Advance
             currentClickHandler = async (e) => {
