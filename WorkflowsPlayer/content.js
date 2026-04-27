@@ -51,6 +51,81 @@ async function init() {
     document.body.appendChild(overlay);
   }
 
+  // Inject Custom Styles for Shepherd Buttons
+  if (!document.getElementById('shepherd-custom-styles')) {
+    const style = document.createElement('style');
+    style.id = 'shepherd-custom-styles';
+    style.textContent = `
+      .shepherd-button-complete {
+        background: #28a745 !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+        font-weight: bold !important;
+        padding: 8px 16px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        transition: all 0.2s ease !important;
+        cursor: pointer !important;
+      }
+      .shepherd-button-complete:hover {
+        background: #218838 !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 12px rgba(40, 167, 69, 0.4) !important;
+      }
+      .shepherd-button-complete:active {
+        transform: translateY(0) !important;
+      }
+      .shepherd-check-icon {
+        background: white;
+        color: #28a745;
+        border-radius: 50%;
+        width: 18px;
+        height: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: bold;
+      }
+      .shepherd-button-prev {
+        background: #6c757d !important;
+        color: white !important;
+        border: none !important;
+        border-radius: 8px !important;
+        font-weight: bold !important;
+        padding: 8px 16px !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        transition: all 0.2s ease !important;
+        cursor: pointer !important;
+      }
+      .shepherd-button-prev:hover {
+        background: #5a6268 !important;
+        transform: translateY(-1px) !important;
+        box-shadow: 0 4px 12px rgba(108, 117, 125, 0.4) !important;
+      }
+      .shepherd-button-prev:active {
+        transform: translateY(0) !important;
+      }
+      .shepherd-back-icon {
+        background: white;
+        color: #6c757d;
+        border-radius: 50%;
+        width: 18px;
+        height: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 12px;
+        font-weight: bold;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
   // Esperar 2 segundos después de cargar la página
   setTimeout(async () => {
     try {
@@ -116,12 +191,12 @@ async function init() {
                   // La navegación ya ocurrió. Mostramos el error y navegamos
                   // directamente a la URL del formulario (más fiable que history.back()).
                   // En la siguiente carga, init() reanuda desde revertIdx.
-                  handleError(pendingNode);
-                  setTimeout(() => { window.location.href = pendingStepUrl; }, 2000);
+                  await handleError(pendingNode);
+                  window.location.href = pendingStepUrl;
                 } else {
                   // Seguimos en la misma página: reiniciamos el tour desde revertIdx.
                   iniciarTourDesdeJSON(workflowData, revertIdx);
-                  setTimeout(() => handleError(pendingNode), 800);
+                  setTimeout(async () => { await handleError(pendingNode); }, 800);
                 }
                 tourResumed = true;
               } else {
@@ -641,15 +716,14 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
 
     // Botones
     if (index > 0) {
-      // "Anterior" is tricky with multi-page. For now, basic back.
       stepConfig.buttons.push({
-        text: '← Anterior',
+        text: '<span class="shepherd-back-icon">←</span> Anterior',
         action: async () => {
           // Update state for previous step
           await saveTourState({ data: tourData, name: tourData.name || "Workflow" }, index - 1);
           tour.back();
         },
-        classes: 'shepherd-button-secondary'
+        classes: 'shepherd-button-prev'
       });
     }
 
@@ -659,7 +733,8 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
     if (isInputStep && !isLastStep) {
       // Pasos de input: mostrar botón "Siguiente" para que el usuario avance tras escribir
       stepConfig.buttons.push({
-        text: 'Siguiente →',
+        text: 'Hecho <span class="shepherd-check-icon">✓</span>',
+        classes: 'shepherd-button-complete',
         action: async () => {
           const nextIdx = index + 1;
           const nextN = sortedNodes[nextIdx];
@@ -695,7 +770,8 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
 
     if (isLastStep) {
       stepConfig.buttons.push({
-        text: '✓ Finalizar',
+        text: 'Finalizar <span class="shepherd-check-icon">✓</span>',
+        classes: 'shepherd-button-complete',
         action: async () => {
           await clearTourState();
           tour.complete();
@@ -772,8 +848,8 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
             String(n.id) === String(step.id) ||
             `step-${sortedNodes.indexOf(n)}` === String(step.id)
           );
-          const currentNode   = sortedNodes[globalIdx] || null;
-          const isInputStep   = currentNode?.data?.stepType === 'input';
+          const currentNode = sortedNodes[globalIdx] || null;
+          const isInputStep = currentNode?.data?.stepType === 'input';
           const isDynamicStep = currentNode?.data?.stepType === 'dynamic';
 
           if (isInputStep) {
@@ -803,8 +879,8 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
                   await clearTourState();
                   setTimeout(() => { tour.complete(); setTimeout(() => isReplaying = false, 600); }, 300);
                 } else {
-                  const nextIdx  = gIdx + 1;
-                  const nextN    = sortedNodes[nextIdx];
+                  const nextIdx = gIdx + 1;
+                  const nextN = sortedNodes[nextIdx];
                   const needsNav = nextN.data.url && !urlsMatch(nextN.data.url, window.location.href);
                   await saveTourState({ data: tourData, name: tourData.name || 'Workflow' }, nextIdx, needsNav, null);
                   // Esperar 300 ms para que la UI actualice antes de avanzar el tour
@@ -1195,14 +1271,9 @@ function highlightElement(element) {
 /**
  * Gestiona el error cuando el estado esperado no se cumple.
  *
- * CASO A: Se detecta un campo inválido via :invalid → lo resalta y muestra
- *         mensaje de revisión puntual.
- * CASO B: No hay campo inválido detectable → muestra mensaje de revisión
- *         global y vuelve al primer paso visible en la página actual.
- *
  * @param {Object} node - Nodo del workflow que no superó la validación
  */
-function handleError(node) {
+async function handleError(node) {
   console.warn('[Validación] ❌ Estado esperado no alcanzado. Activando recuperación guiada.');
 
   // ── CASO A: campo inválido detectable ───────────────────────────────────
@@ -1210,20 +1281,20 @@ function handleError(node) {
   if (invalidField) {
     console.log('[Validación] 🔎 Campo inválido encontrado:', invalidField);
     highlightElement(invalidField);
-    mostrarMensajeError(
-      '⚠️ Vamos a revisarlo juntos 🙂',
-      'Este dato puede no ser correcto.',
-      'Corrígelo y vuelve a pulsar el botón.'
+    await mostrarMensajeError(
+      '¡Ups! Un pequeño despiste 😅',
+      'Parece que hay algún dato que no es del todo correcto.',
+      '¡No te preocupes! Vamos a revisarlo juntos para poder continuar.'
     );
     return;
   }
 
   // ── CASO B: sin error específico detectable ──────────────────────────────
   console.log('[Validación] 🔁 Sin campo inválido. Volviendo al primer paso de la página.');
-  mostrarMensajeError(
-    '😊 No pasa nada',
-    'Vamos a revisar los datos desde el principio.',
-    ''
+  await mostrarMensajeError(
+    'No ha salido a la primera, ¡pero no pasa nada! 😊',
+    'A veces la tecnología es un poco caprichosa.',
+    'Vamos a volver a intentarlo tranquilamente, paso a paso.'
   );
 
   // Volver al primer paso cuya URL coincide con la actual
@@ -1237,67 +1308,118 @@ function handleError(node) {
 }
 
 /**
- * Muestra un modal de error no intrusivo al usuario.
+ * Muestra un modal de error en el centro de la pantalla.
  *
  * @param {string} titulo  - Título principal del mensaje
  * @param {string} mensaje - Mensaje descriptivo
  * @param {string} [ayuda] - Texto de ayuda adicional (opcional)
  */
 function mostrarMensajeError(titulo, mensaje, ayuda = '') {
-  // Evitar duplicados
-  const existente = document.getElementById('tour-error-toast');
-  if (existente) existente.remove();
+  return new Promise((resolve) => {
+    // Evitar duplicados
+    const existente = document.getElementById('tour-error-toast');
+    const existenteBackdrop = document.getElementById('tour-error-backdrop');
+    if (existente) existente.remove();
+    if (existenteBackdrop) existenteBackdrop.remove();
 
-  const toast = document.createElement('div');
-  toast.id = 'tour-error-toast';
-  toast.style.cssText = `
-    position: fixed;
-    bottom: 30px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: #fff;
-    color: #333;
-    border-left: 6px solid #e53935;
-    border-radius: 12px;
-    padding: 20px 30px;
-    font-family: sans-serif;
-    font-size: 18px;
-    z-index: 1000001;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.25);
-    max-width: 480px;
-    width: 90%;
-    animation: slideUpToast 0.4s ease;
-  `;
-
-  toast.innerHTML = `
-    <div style="font-weight: bold; font-size: 20px; margin-bottom: 8px;">${titulo}</div>
-    <div style="color: #555; margin-bottom: ${ayuda ? '6px' : '0'}">${mensaje}</div>
-    ${ayuda ? `<div style="color: #888; font-size: 15px;">${ayuda}</div>` : ''}
-  `;
-
-  // Añadir keyframe si no existe
-  if (!document.getElementById('tour-error-style')) {
-    const s = document.createElement('style');
-    s.id = 'tour-error-style';
-    s.textContent = `
-      @keyframes slideUpToast {
-        from { opacity: 0; transform: translateX(-50%) translateY(20px); }
-        to   { opacity: 1; transform: translateX(-50%) translateY(0); }
-      }
+    const backdrop = document.createElement('div');
+    backdrop.id = 'tour-error-backdrop';
+    backdrop.style.cssText = `
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(3px);
+      z-index: 1000000;
+      animation: fadeInBackdrop 0.3s ease;
     `;
-    document.head.appendChild(s);
-  }
 
-  document.body.appendChild(toast);
+    const modal = document.createElement('div');
+    modal.id = 'tour-error-toast';
+    modal.style.cssText = `
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: #fff;
+      color: #333;
+      border-radius: 20px;
+      padding: 30px 40px;
+      text-align: center;
+      font-family: system-ui, -apple-system, sans-serif;
+      z-index: 1000001;
+      box-shadow: 0 15px 50px rgba(0,0,0,0.2);
+      max-width: 480px;
+      width: 90%;
+      animation: popInModal 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    `;
 
-  // Auto-eliminar tras 5 s
-  setTimeout(() => {
-    if (toast && toast.parentNode) {
-      toast.style.opacity = '0';
-      toast.style.transition = 'opacity 0.4s ease';
-      setTimeout(() => toast.remove(), 400);
+    modal.innerHTML = `
+      <div style="font-weight: 800; font-size: 24px; margin-bottom: 15px; color: #d32f2f;">
+        ${titulo}
+      </div>
+      <div style="color: #444; font-size: 18px; margin-bottom: ${ayuda ? '10px' : '0'}">
+        ${mensaje}
+      </div>
+      ${ayuda ? `<div style="color: #666; font-size: 16px; margin-bottom: 25px;">${ayuda}</div>` : ''}
+      <button id="btn-tour-error-retry" style="
+        background: linear-gradient(135deg, #e53935 0%, #c62828 100%);
+        color: white;
+        border: none;
+        padding: 12px 30px;
+        font-size: 18px;
+        font-weight: bold;
+        border-radius: 50px;
+        cursor: pointer;
+        box-shadow: 0 6px 15px rgba(229, 57, 53, 0.4);
+        transition: all 0.2s ease;
+      ">
+        Volver a intentar
+      </button>
+    `;
+
+    // Animaciones
+    if (!document.getElementById('tour-error-style')) {
+      const s = document.createElement('style');
+      s.id = 'tour-error-style';
+      s.textContent = `
+        @keyframes popInModal {
+          0%   { opacity: 0; transform: translate(-50%, -20%) scale(0.8); }
+          100% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        }
+        @keyframes fadeInBackdrop {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+        #btn-tour-error-retry:hover {
+          transform: translateY(-2px);
+          box-shadow: 0 8px 20px rgba(229, 57, 53, 0.5);
+        }
+        #btn-tour-error-retry:active {
+          transform: translateY(1px);
+          box-shadow: 0 3px 10px rgba(229, 57, 53, 0.4);
+        }
+      `;
+      document.head.appendChild(s);
     }
-  }, 5000);
+
+    document.body.appendChild(backdrop);
+    document.body.appendChild(modal);
+
+    const btnRetry = modal.querySelector('#btn-tour-error-retry');
+    btnRetry.onclick = () => {
+      modal.style.transition = 'all 0.3s ease';
+      backdrop.style.transition = 'opacity 0.3s ease';
+      modal.style.opacity = '0';
+      modal.style.transform = 'translate(-50%, -40%) scale(0.9)';
+      backdrop.style.opacity = '0';
+      
+      setTimeout(() => {
+        modal.remove();
+        backdrop.remove();
+        resolve(); // RESOLVE PROMISE ON CLICK
+      }, 300);
+    };
+  });
 }
 
 console.log('✓ Sistema cargado');
