@@ -429,7 +429,7 @@ function crearOverlayTutoriales(workflows) {
     margin: 0 0 50px 0; color: #555;
     font-size: 32px; text-align: center; line-height: 1.4;
   `;
-  subtitulo.textContent = 'Guía disponible. Pulsa el botón verde para empezar.';
+  subtitulo.textContent = 'Guías disponibles. Pulsa sobre la guia para ver los detalles y empezar.';
   container.appendChild(subtitulo);
 
   // Crear contenedor de lista (Grid)
@@ -480,7 +480,7 @@ function crearOverlayTutoriales(workflows) {
             `).join('')}
           </div>
         ` : ''}
-        <div style="font-size: 20px; opacity: 0.95; font-weight: normal;">▶ CLIC PARA EMPEZAR</div>
+        <div style="font-size: 20px; opacity: 0.95; font-weight: normal;">▶ PULSA PARA VER LOS DETALLES</div>
       </div>
       <div style="font-size: 60px; margin-left: 20px;">👉</div>
     `;
