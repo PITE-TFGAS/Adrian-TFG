@@ -5,6 +5,7 @@ let currentWorkflow = null;
 
 // Elementos del DOM
 const workflowNameInput = document.getElementById('workflowName');
+const workflowDescriptionInput = document.getElementById('workflowDescription');
 const btnStart = document.getElementById('btnStart');
 const btnStop = document.getElementById('btnStop');
 const btnUpload = document.getElementById('btnUpload'); // Replaced btnDownload
@@ -59,6 +60,8 @@ btnStart.addEventListener('click', async () => {
     return;
   }
 
+  const workflowDescription = workflowDescriptionInput.value.trim();
+
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
   if (!tab) {
@@ -68,6 +71,7 @@ btnStart.addEventListener('click', async () => {
 
   const workflow = {
     name: workflowName,
+    description: workflowDescription,
     url: tab.url,
     steps: [],
     createdAt: new Date().toISOString()
@@ -196,6 +200,7 @@ btnUpload.addEventListener('click', async () => {
 
   const output = {
     name: currentWorkflow.name,
+    description: currentWorkflow.description,
     url: currentWorkflow.url,
     createdAt: currentWorkflow.createdAt,
     drawflow: { nodes: [] }
@@ -262,6 +267,8 @@ btnUpload.addEventListener('click', async () => {
       btnStart.style.display = 'block';
       workflowNameInput.disabled = false;
       workflowNameInput.value = '';
+      workflowDescriptionInput.disabled = false;
+      workflowDescriptionInput.value = '';
       btnUpload.textContent = originalText;
       btnUpload.style.background = '';
       btnUpload.disabled = false;
@@ -291,6 +298,8 @@ btnClear.addEventListener('click', () => {
     currentWorkflow = null;
     workflowNameInput.value = '';
     workflowNameInput.disabled = false;
+    workflowDescriptionInput.value = '';
+    workflowDescriptionInput.disabled = false;
     btnStart.style.display = 'block';
     btnStop.style.display = 'none';
     btnUpload.style.display = 'none';
@@ -319,6 +328,7 @@ function activarModoGrabacion(workflow) {
   currentWorkflow = workflow;
 
   workflowNameInput.disabled = true;
+  workflowDescriptionInput.disabled = true;
   btnStart.style.display = 'none';
   btnStop.style.display = 'block';
   btnUpload.style.display = 'none';
@@ -361,6 +371,7 @@ function desactivarModoGrabacion(workflow) {
   btnClear.style.display = 'block';
   tagsGroup.style.display = 'block';
   workflowNameInput.disabled = true;
+  workflowDescriptionInput.disabled = true;
 
   // Reset tags for new workflow
   workflowTags = [];

@@ -497,8 +497,7 @@ function crearOverlayTutoriales(workflows) {
 
     boton.onclick = async () => {
       if (workflow.data) {
-        cerrarMenu();
-        iniciarTourDesdeJSON(workflow.data);
+        mostrarModalDetallesTour(workflow, workflows);
       }
     };
 
@@ -531,6 +530,116 @@ function cerrarMenu() {
       }
     }, 300);
   }
+}
+
+function mostrarModalDetallesTour(workflow, workflows) {
+  if (menuOverlay) {
+    menuOverlay.style.display = 'none';
+  }
+
+  const detallesOverlay = document.createElement('div');
+  detallesOverlay.id = 'detalles-tutorial-overlay';
+  detallesOverlay.style.cssText = `
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.85); z-index: 999999;
+    display: flex; flex-direction: column; justify-content: center; align-items: center;
+    animation: fadeIn 0.3s ease;
+  `;
+
+  const container = document.createElement('div');
+  container.style.cssText = `
+    background: white; border-radius: 30px; padding: 50px;
+    max-width: 800px; width: 90%; box-shadow: 0 15px 80px rgba(0, 0, 0, 0.6);
+    text-align: center;
+  `;
+
+  const titulo = document.createElement('h1');
+  titulo.style.cssText = `margin: 0 0 20px 0; color: #2196F3; font-size: 48px;`;
+  titulo.textContent = workflow.name;
+  container.appendChild(titulo);
+
+  // Intentamos obtener tags
+  const tags = workflow.tags || (workflow.data && workflow.data.tags);
+  if (tags && tags.length > 0) {
+    const tagsContainer = document.createElement('div');
+    tagsContainer.style.cssText = `display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; margin-bottom: 30px;`;
+    tags.forEach(tag => {
+      const tagSpan = document.createElement('span');
+      tagSpan.style.cssText = `
+        background: ${tag === 'review needed' ? '#fff3cd' : '#e3f2fd'};
+        color: ${tag === 'review needed' ? '#856404' : '#1976d2'};
+        padding: 8px 16px; border-radius: 20px; font-size: 18px; font-weight: 500;
+        border: 1px solid ${tag === 'review needed' ? '#ffc107' : '#90caf9'};
+      `;
+      tagSpan.textContent = tag;
+      tagsContainer.appendChild(tagSpan);
+    });
+    container.appendChild(tagsContainer);
+  }
+
+  // Intentamos obtener descripción
+  const description = workflow.description || (workflow.data && workflow.data.description);
+  if (description) {
+    const desc = document.createElement('p');
+    desc.style.cssText = `margin: 0 0 40px 0; color: #555; font-size: 24px; line-height: 1.5; text-align: left; background: #f9f9f9; padding: 25px; border-radius: 15px; border-left: 6px solid #2196F3;`;
+    desc.textContent = description;
+    container.appendChild(desc);
+  } else {
+    const noDesc = document.createElement('p');
+    noDesc.style.cssText = `margin: 0 0 40px 0; color: #999; font-size: 20px; font-style: italic;`;
+    noDesc.textContent = "Este tour no tiene descripción.";
+    container.appendChild(noDesc);
+  }
+
+  const buttonsContainer = document.createElement('div');
+  buttonsContainer.style.cssText = `display: flex; gap: 20px; justify-content: center;`;
+
+  const btnAtras = document.createElement('button');
+  btnAtras.style.cssText = `
+    background: #9e9e9e; color: white; border: none; border-radius: 15px;
+    padding: 20px 40px; font-size: 24px; font-weight: bold; cursor: pointer;
+    transition: all 0.2s ease;
+  `;
+  btnAtras.innerHTML = '← Volver';
+  btnAtras.onmouseover = () => btnAtras.style.background = '#757575';
+  btnAtras.onmouseout = () => btnAtras.style.background = '#9e9e9e';
+  btnAtras.onclick = () => {
+    detallesOverlay.remove();
+    if (menuOverlay) {
+      menuOverlay.style.display = 'flex';
+    }
+  };
+
+  const btnEmpezar = document.createElement('button');
+  btnEmpezar.style.cssText = `
+    background: #4CAF50; color: white; border: none; border-radius: 15px;
+    padding: 20px 40px; font-size: 24px; font-weight: bold; cursor: pointer;
+    transition: all 0.2s ease; box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4);
+  `;
+  btnEmpezar.innerHTML = '▶ Iniciar Tour';
+  btnEmpezar.onmouseover = () => {
+    btnEmpezar.style.transform = 'translateY(-2px)';
+    btnEmpezar.style.boxShadow = '0 8px 20px rgba(76, 175, 80, 0.6)';
+  };
+  btnEmpezar.onmouseout = () => {
+    btnEmpezar.style.transform = 'translateY(0)';
+    btnEmpezar.style.boxShadow = '0 5px 15px rgba(76, 175, 80, 0.4)';
+  };
+  btnEmpezar.onclick = () => {
+    detallesOverlay.remove();
+    if (menuOverlay) {
+      menuOverlay.remove();
+      menuOverlay = null;
+    }
+    iniciarTourDesdeJSON(workflow.data);
+  };
+
+  buttonsContainer.appendChild(btnAtras);
+  buttonsContainer.appendChild(btnEmpezar);
+  container.appendChild(buttonsContainer);
+  
+  detallesOverlay.appendChild(container);
+  document.body.appendChild(detallesOverlay);
 }
 
 // Lógica de recorte oscuro
