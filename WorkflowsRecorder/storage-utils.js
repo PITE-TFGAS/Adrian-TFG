@@ -1,8 +1,8 @@
-// storage-utils.js - Utilidades para manejar workflows en Chrome Storage
+// storage-utils.js - Utilities to handle workflows in Chrome Storage
 
 /**
- * Cargar todos los workflows guardados
- * @returns {Promise<Array>} Array de workflows con sus datos
+ * Load all saved workflows
+ * @returns {Promise<Array>} Array of workflows with their data
  */
 async function loadAllWorkflows() {
   try {
@@ -10,13 +10,13 @@ async function loadAllWorkflows() {
     const workflowList = result.workflowList || [];
     
     if (workflowList.length === 0) {
-      console.log('No hay workflows guardados');
+      console.log('No saved workflows found');
       return [];
     }
     
-    console.log(`📚 Cargando ${workflowList.length} workflow(s)...`);
+    console.log(`📚 Loading ${workflowList.length} workflow(s)...`);
     
-    // Cargar los datos completos de cada workflow
+    // Load full data for each workflow
     const workflows = await Promise.all(
       workflowList.map(async (item) => {
         const workflowKey = `workflow_${item.id}`;
@@ -29,20 +29,20 @@ async function loadAllWorkflows() {
     );
     
     const validWorkflows = workflows.filter(w => w.data);
-    console.log(`✓ ${validWorkflows.length} workflow(s) cargados correctamente`);
+    console.log(`✓ ${validWorkflows.length} workflow(s) loaded successfully`);
     
     return validWorkflows;
     
   } catch (error) {
-    console.error('Error cargando workflows:', error);
+    console.error('Error loading workflows:', error);
     return [];
   }
 }
 
 /**
- * Cargar un workflow específico por ID
- * @param {string} id - ID del workflow
- * @returns {Promise<Object|null>} Datos del workflow o null
+ * Load a specific workflow by ID
+ * @param {string} id - Workflow ID
+ * @returns {Promise<Object|null>} Workflow data or null
  */
 async function loadWorkflowById(id) {
   try {
@@ -50,68 +50,68 @@ async function loadWorkflowById(id) {
     const result = await chrome.storage.local.get([workflowKey]);
     
     if (result[workflowKey]) {
-      console.log('✓ Workflow cargado:', id);
+      console.log('✓ Workflow loaded:', id);
       return result[workflowKey];
     } else {
-      console.warn('⚠️ Workflow no encontrado:', id);
+      console.warn('⚠️ Workflow not found:', id);
       return null;
     }
   } catch (error) {
-    console.error('Error cargando workflow:', error);
+    console.error('Error loading workflow:', error);
     return null;
   }
 }
 
 /**
- * Eliminar un workflow
- * @param {string} id - ID del workflow a eliminar
- * @returns {Promise<boolean>} true si se eliminó correctamente
+ * Delete a workflow
+ * @param {string} id - ID of the workflow to delete
+ * @returns {Promise<boolean>} true if deleted successfully
  */
 async function deleteWorkflow(id) {
   try {
-    // Eliminar de la lista
+    // Remove from the list
     const result = await chrome.storage.local.get(['workflowList']);
     const workflowList = result.workflowList || [];
     const updatedList = workflowList.filter(w => w.id !== id);
     await chrome.storage.local.set({ workflowList: updatedList });
     
-    // Eliminar los datos del workflow
+    // Remove workflow data
     const workflowKey = `workflow_${id}`;
     await chrome.storage.local.remove([workflowKey]);
     
-    console.log('✓ Workflow eliminado:', id);
+    console.log('✓ Workflow deleted:', id);
     return true;
   } catch (error) {
-    console.error('Error eliminando workflow:', error);
+    console.error('Error deleting workflow:', error);
     return false;
   }
 }
 
 /**
- * Buscar workflows por URL
- * @param {string} url - URL completa o parcial
- * @returns {Promise<Array>} Array de workflows que coinciden
+ * Search workflows by URL
+ * @param {string} url - Full or partial URL
+ * @returns {Promise<Array>} Array of matching workflows
  */
 async function findWorkflowsByUrl(url) {
   try {
     const allWorkflows = await loadAllWorkflows();
     const matches = allWorkflows.filter(w => {
-      // Comparación exacta o parcial
+      // Exact or partial match
       return w.url === url || w.url.includes(url) || url.includes(w.url);
     });
     
-    console.log(`🔍 Encontrados ${matches.length} workflow(s) para URL: ${url}`);
+    console.log(`🔍 Found ${matches.length} workflow(s) for URL: ${url}`);
     return matches;
   } catch (error) {
-    console.error('Error buscando workflows:', error);
+    console.error('Error searching workflows:', error);
     return [];
   }
 }
 
 /**
- * Buscar workflows por nombre
- * @param {string} searchTerm - Término de búsqueda
- * @returns {Promise<Array>} Array de workflows que coinciden
+ * Search workflows by name
+ * @param {string} searchTerm - Search term
+ * @returns {Promise<Array>} Array of matching workflows
  */
 async function searchWorkflowsByName(searchTerm) {
   try {
@@ -121,17 +121,17 @@ async function searchWorkflowsByName(searchTerm) {
       w.name.toLowerCase().includes(term)
     );
     
-    console.log(`🔍 Encontrados ${matches.length} workflow(s) con: "${searchTerm}"`);
+    console.log(`🔍 Found ${matches.length} workflow(s) with: "${searchTerm}"`);
     return matches;
   } catch (error) {
-    console.error('Error buscando workflows:', error);
+    console.error('Error searching workflows:', error);
     return [];
   }
 }
 
 /**
- * Obtener estadísticas de workflows
- * @returns {Promise<Object>} Objeto con estadísticas
+ * Get workflow statistics
+ * @returns {Promise<Object>} Object with statistics
  */
 async function getWorkflowStats() {
   try {
@@ -145,43 +145,43 @@ async function getWorkflowStats() {
       newest: workflows.length > 0 ? new Date(Math.max(...workflows.map(w => new Date(w.createdAt)))) : null
     };
     
-    console.log('📊 Estadísticas de workflows:', stats);
+    console.log('📊 Workflow statistics:', stats);
     return stats;
   } catch (error) {
-    console.error('Error obteniendo estadísticas:', error);
+    console.error('Error getting statistics:', error);
     return null;
   }
 }
 
 /**
- * Limpiar todos los workflows
- * @returns {Promise<boolean>} true si se limpiaron correctamente
+ * Clear all workflows
+ * @returns {Promise<boolean>} true if cleared successfully
  */
 async function clearAllWorkflows() {
   try {
     const result = await chrome.storage.local.get(['workflowList']);
     const workflowList = result.workflowList || [];
     
-    // Eliminar cada workflow
+    // Delete each workflow
     for (const item of workflowList) {
       const workflowKey = `workflow_${item.id}`;
       await chrome.storage.local.remove([workflowKey]);
     }
     
-    // Limpiar la lista
+    // Clear the list
     await chrome.storage.local.set({ workflowList: [] });
     
-    console.log('✓ Todos los workflows eliminados');
+    console.log('✓ All workflows deleted');
     return true;
   } catch (error) {
-    console.error('Error limpiando workflows:', error);
+    console.error('Error clearing workflows:', error);
     return false;
   }
 }
 
 /**
- * Exportar todos los workflows a JSON
- * @returns {Promise<string>} JSON con todos los workflows
+ * Export all workflows to JSON
+ * @returns {Promise<string>} JSON with all workflows
  */
 async function exportAllWorkflows() {
   try {
@@ -194,15 +194,15 @@ async function exportAllWorkflows() {
     
     return JSON.stringify(exportData, null, 2);
   } catch (error) {
-    console.error('Error exportando workflows:', error);
+    console.error('Error exporting workflows:', error);
     return null;
   }
 }
 
 /**
- * Importar workflows desde JSON
- * @param {string} jsonString - JSON con workflows a importar
- * @returns {Promise<number>} Número de workflows importados
+ * Import workflows from JSON
+ * @param {string} jsonString - JSON with workflows to import
+ * @returns {Promise<number>} Number of imported workflows
  */
 async function importWorkflows(jsonString) {
   try {
@@ -214,11 +214,11 @@ async function importWorkflows(jsonString) {
     for (const workflowData of workflows) {
       const filename = `workflow-${workflowData.name.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}.json`;
       
-      // Obtener lista actual
+      // Get current list
       const result = await chrome.storage.local.get(['workflowList']);
       const workflowList = result.workflowList || [];
       
-      // Agregar metadata
+      // Add metadata
       workflowList.push({
         id: filename,
         filename: filename,
@@ -228,7 +228,7 @@ async function importWorkflows(jsonString) {
         stepsCount: workflowData.drawflow.nodes.length
       });
       
-      // Guardar
+      // Save
       await chrome.storage.local.set({ workflowList });
       const workflowKey = `workflow_${filename}`;
       await chrome.storage.local.set({ [workflowKey]: workflowData });
@@ -236,15 +236,15 @@ async function importWorkflows(jsonString) {
       imported++;
     }
     
-    console.log(`✓ ${imported} workflow(s) importados`);
+    console.log(`✓ ${imported} workflow(s) imported`);
     return imported;
   } catch (error) {
-    console.error('Error importando workflows:', error);
+    console.error('Error importing workflows:', error);
     return 0;
   }
 }
 
-// Si estás en un módulo, exporta las funciones
+// If in a module, export the functions
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     loadAllWorkflows,

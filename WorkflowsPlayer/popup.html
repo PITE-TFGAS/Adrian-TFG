@@ -1,117 +1,122 @@
 <!DOCTYPE html>
 <html lang="es">
-
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Tour Import</title>
+  <title>Mis Guías</title>
   <style>
+    :root {
+      --primary: #2196F3;
+      --secondary: #4CAF50;
+      --bg: #f8f9fa;
+      --text: #333;
+    }
     body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      width: 320px;
+      width: 350px;
       padding: 20px;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background-color: var(--bg);
+      color: var(--text);
       margin: 0;
-      background-color: #f7f9fc;
-      text-align: center;
     }
-
-    h1 {
-      font-size: 20px;
-      color: #333;
-      margin-top: 0;
-    }
-
-    p {
-      color: #666;
-      font-size: 14px;
-      margin-bottom: 25px;
-    }
-
-    .btn-primary {
-      background: #2196F3;
-      color: white;
-      border: none;
-      padding: 12px 24px;
-      font-size: 16px;
-      border-radius: 8px;
-      cursor: pointer;
-      width: 100%;
-      font-weight: 500;
-      transition: background 0.2s;
+    .header {
       display: flex;
       align-items: center;
-      justify-content: center;
       gap: 10px;
+      margin-bottom: 20px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #eee;
     }
-
-    .btn-primary:hover {
-      background: #1976D2;
-    }
-
-    #status {
-      margin-top: 20px;
-      padding: 15px;
+    .header h2 { margin: 0; font-size: 20px; color: var(--primary); }
+    
+    /* Auth Styles */
+    .auth-card {
       background: white;
+      padding: 15px;
+      border-radius: 12px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      margin-bottom: 15px;
+    }
+    .form-group { margin-bottom: 12px; }
+    input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
       border-radius: 8px;
-      border: 1px solid #e0e0e0;
+      box-sizing: border-box;
+    }
+    .btn-group { display: flex; gap: 8px; }
+    button {
+      flex: 1;
+      padding: 10px;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+    .btn-primary { background: var(--primary); color: white; }
+    .btn-secondary { background: #eee; color: #666; }
+    .btn-logout { background: #fee2e2; color: #ef4444; width: 100%; margin-top: 10px; }
+    
+    #userInfo { display: none; flex-direction: column; gap: 10px; }
+    .user-email { font-size: 13px; color: #666; font-weight: bold; }
+
+    /* Workflow List */
+    #status {
+      margin-top: 15px;
+      padding: 15px;
+      border-radius: 10px;
+      text-align: center;
+      font-weight: 500;
       display: none;
     }
-
-    .success {
-      color: #2e7d32;
-      background: #e8f5e9 !important;
-      border-color: #a5d6a7 !important;
-    }
-
-    .error {
-      color: #c62828;
-      background: #ffebee !important;
-      border-color: #ef9a9a !important;
-    }
-
-    .count {
-      font-size: 24px;
-      font-weight: bold;
-      color: #2196F3;
-      display: block;
-      margin-bottom: 5px;
-    }
+    .success { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
+    .error { background: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
+    .count { font-size: 24px; font-weight: 800; display: block; margin-bottom: 5px; }
+    
+    .message { font-size: 12px; margin-top: 8px; text-align: center; }
   </style>
 </head>
-
 <body>
-  <div id="authContainer"
-    style="margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 15px; text-align: left;">
-    <div id="loginForm">
-      <div style="margin-bottom: 10px;">
-        <input type="email" id="email" placeholder="Email"
-          style="width: 100%; padding: 8px; margin-bottom: 5px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px;">
-        <input type="password" id="password" placeholder="Contraseña"
-          style="width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px;">
-      </div>
-      <div style="display: flex; gap: 10px;">
-        <button id="btnLogin"
-          style="background: #2196F3; color: white; border: none; padding: 8px; margin-bottom: 0; width: 100%; cursor: pointer; border-radius: 4px;">Entrar</button>
-        <button id="btnRegister"
-          style="background: white; color: #2196F3; border: 1px solid #2196F3; padding: 8px; margin-bottom: 0; width: 100%; cursor: pointer; border-radius: 4px;">Registrar</button>
-      </div>
-      <div id="authMessage" style="color: red; font-size: 12px; margin-top: 5px;"></div>
-    </div>
-    <div id="userInfo" style="display: none; align-items: center; justify-content: space-between;">
-      <span id="userEmail" style="font-weight: 500; font-size: 14px; color: #333;"></span>
-      <button id="btnLogout"
-        style="width: auto; padding: 5px 10px; font-size: 12px; margin: 0; background: #607d8b; color: white; border: none; border-radius: 4px; cursor: pointer;">Salir</button>
-    </div>
+  <div class="header">
+    <span style="font-size: 24px;">🧭</span>
+    <h2>Mis Guías</h2>
   </div>
-  <h1>Gestor de Guías</h1>
-  <p>Para cargar las guías, selecciona la carpeta donde guardaste los archivos .json</p>
 
-  <!-- Sync Button Removed for Automatic Sync -->
-  <div id="status" style="margin-top: 10px;"></div>
+  <!-- Login Form -->
+  <div id="loginForm" class="auth-card">
+    <div class="form-group">
+      <input type="email" id="email" placeholder="Correo electrónico">
+    </div>
+    <div class="form-group">
+      <input type="password" id="password" placeholder="Contraseña">
+    </div>
+    <div class="btn-group">
+      <button id="btnLogin" class="btn-primary">Entrar</button>
+      <button id="btnRegister" class="btn-secondary">Registrarse</button>
+    </div>
+    <p id="authMessage" class="message"></p>
+  </div>
+
+  <!-- User Info & Sync -->
+  <div id="userInfo" class="auth-card">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+      <span class="user-email" id="userEmail"></span>
+      <button id="btnLogout" class="btn-logout" style="width: auto; margin: 0; padding: 5px 10px;">Salir</button>
+    </div>
+    
+    <div id="status">
+      <!-- Sync status injected here -->
+    </div>
+
+    <button id="btnSync" class="btn-primary" style="margin-top: 10px;">
+      🔄 Sincronizar Guías
+    </button>
+  </div>
+
   <script src="supabase.min.js"></script>
   <script src="supabase-client.js"></script>
   <script src="auth.js"></script>
   <script src="popup.js"></script>
 </body>
-
 </html>

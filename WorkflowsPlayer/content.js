@@ -1,23 +1,25 @@
-// content.js - Reproductor Final (Grid + Manual Scroll + Error Handling)
+// content.js - Final Player (Grid + Manual Scroll + Error Handling)
 
-// Shepherd.js ya está cargado desde el manifest
+// Shepherd.js is already loaded from the manifest
 let tour = null;
 let overlay = null;
 let menuOverlay = null;
 
-// Bandera para saber si la navegación fue iniciada por el tour (no por el usuario)
-// Evita que beforeunload limpie el estado del tour durante la navegación entre pasos
+// Flag to know if navigation was initiated by the tour (not by the user)
+// Prevents beforeunload from clearing the tour state during step-to-step navigation
 let isTourNavigation = false;
 
-// Variables para el seguimiento del elemento actual
+// Variables for tracking the current element
 let currentTargetElement = null;
 let animationFrameId = null;
 let isReplaying = false;
 let currentTargetSelector = null;
 let lastAttachedElement = null;
 
-// Simular una secuencia completa de clic (mousedown -> mouseup -> click)
-// Necesario para componentes que reaccionan a mousedown (ej: desplegables de aerolíneas)
+/**
+ * Simulate a full click sequence (mousedown -> mouseup -> click)
+ * Necessary for components that react to mousedown (e.g., airline dropdowns)
+ */
 function simulateFullClick(element) {
   if (!element) return;
 
@@ -41,35 +43,37 @@ if (document.readyState === 'loading') {
   init();
 }
 
-// Limpiar el tour activo cuando el usuario cierra o abandona la pestaña
-// SOLO si NO es una navegación programada por el propio tour
+/**
+ * Clear the active tour when the user closes or leaves the tab
+ * ONLY if it is NOT a scheduled tour navigation
+ */
 window.addEventListener('beforeunload', () => {
   if (!isTourNavigation) {
     try {
       chrome.storage.local.remove(['active_tour']);
-    } catch (e) { /* ignorar */ }
+    } catch (e) { /* ignore */ }
   }
 });
 
 async function init() {
-  // Verificar contexto de extensión (evitar error de script huérfano)
+  // Check extension context (avoid orphan script error)
   if (!chrome.runtime || !chrome.runtime.id) {
-    console.warn('Contexto de extensión inválido. Se requiere recargar.');
+    console.warn('Invalid extension context. Reload required.');
     return;
   }
 
-  // Si hay un tour activo, crear el overlay inmediatamente (antes del delay de 2s)
-  // para que no haya parpadeo al navegar entre páginas durante un tour
+  // If there is an active tour, create the overlay immediately (before the 2s delay)
+  // to avoid flickering when navigating between pages during a tour
   try {
     const result = await chrome.storage.local.get(['active_tour']);
     if (result.active_tour && result.active_tour.isActive && overlay === null) {
       overlay = document.createElement('div');
       overlay.id = 'overlay-extension';
       document.body.appendChild(overlay);
-      console.log('🔲 [Tour] Overlay creado inmediatamente (tour activo detectado).');
+      console.log('🔲 [Tour] Overlay created immediately (active tour detected).');
     }
   } catch (e) {
-    // Si falla, el overlay se creará más tarde en iniciarTourDesdeJSON
+    // If it fails, the overlay will be created later in startTourFromJSON
   }
 
   // Inject Custom Styles for Shepherd Buttons
@@ -147,11 +151,11 @@ async function init() {
     document.head.appendChild(style);
   }
 
-  // Esperar 2 segundos después de cargar la página
+  // Wait 2 seconds after loading the page
   setTimeout(async () => {
     try {
       if (chrome.runtime && chrome.runtime.id) {
-        console.log("🔍 [Tour] Iniciando comprobación...");
+        console.log("🔍 [Tour] Starting check...");
 
         // 0. Check for invalid context
         if (!window.supabaseClient && !window.supabase) {
@@ -173,33 +177,30 @@ async function init() {
         let tourResumed = false;
 
         if (savedState && savedState.isActive) {
-          console.log("🔄 [Tour] Detectado tour persistente:", savedState.workflow.name, "Paso:", savedState.currentStepIndex);
+          console.log("🔄 [Tour] Persistent tour detected:", savedState.workflow.name, "Step:", savedState.currentStepIndex);
 
           const workflowData = savedState.workflow.data || savedState.workflow;
           const allNodes = (workflowData.drawflow?.nodes || []).sort((a, b) => a.id - b.id);
           const currentNode = allNodes[savedState.currentStepIndex];
           const expectedUrl = currentNode?.data?.url || null;
 
-          // ── VALIDACIÓN DE URL ─────────────────────────────────────────
-          // Si la URL actual NO coincide con la URL esperada para el paso guardado
-          // Y NO es una navegación programada (isExpectedNavigation), el tour
-          // quedó huérfano (ej: el usuario cerró y volvió a otra página). Lo limpiamos.
-          const esNavegacionEsperada = savedState.isExpectedNavigation === true;
-          const urlCoincide = !expectedUrl || urlsMatch(expectedUrl, window.location.href);
+          // ── URL VALIDATION ─────────────────────────────────────────
+          const isExpectedNavigation = savedState.isExpectedNavigation === true;
+          const urlMatch = !expectedUrl || urlsMatch(expectedUrl, window.location.href);
 
-          if (!urlCoincide && !esNavegacionEsperada) {
-            console.warn('⚠️ [Tour] URL no coincide con el paso guardado. Limpiando tour huérfano.');
+          if (!urlMatch && !isExpectedNavigation) {
+            console.warn('⚠️ [Tour] URL does not match the saved step. Clearing orphaned tour.');
             await clearTourState();
             if (overlay) { overlay.remove(); overlay = null; }
-            // Continuar con la carga normal de la página
+            // Continue with normal page load
           } else {
-            // ── URL coincide o es navegación esperada: reanudar tour ──────
+            // ── URL matches or is expected navigation: resume tour ──────
             if (savedState.pendingValidationIdx != null) {
               const pIdx = savedState.pendingValidationIdx;
               const pendingNode = allNodes[pIdx] || null;
 
               if (pendingNode?.data?.expected) {
-                console.log(`🔎 [Tour] Validando resultado del paso ${pIdx} tras recarga...`);
+                console.log(`🔎 [Tour] Validating step ${pIdx} result after reload...`);
                 const isValid = checkExpectedState(pendingNode.data.expected);
 
                 if (!isValid) {
@@ -211,31 +212,31 @@ async function init() {
                     );
                     if (firstForPendingUrl !== -1) revertIdx = firstForPendingUrl;
                   }
-                  console.warn(`⚠️ [Tour] Validación FALLÓ. Revirtiendo al paso ${revertIdx}.`);
+                  console.warn(`⚠️ [Tour] Validation FAILED. Reverting to step ${revertIdx}.`);
                   await saveTourState(savedState.workflow, revertIdx, false, null);
-                  const yaSomosEnLaURL = pendingStepUrl && urlsMatch(pendingStepUrl, window.location.href);
-                  if (!yaSomosEnLaURL && pendingStepUrl) {
-                    isTourNavigation = true; // proteger beforeunload
+                  const alreadyOnURL = pendingStepUrl && urlsMatch(pendingStepUrl, window.location.href);
+                  if (!alreadyOnURL && pendingStepUrl) {
+                    isTourNavigation = true; // protect beforeunload
                     await handleError(pendingNode);
                     window.location.href = pendingStepUrl;
                   } else {
-                    iniciarTourDesdeJSON(workflowData, revertIdx);
+                    startTourFromJSON(workflowData, revertIdx);
                     setTimeout(async () => { await handleError(pendingNode); }, 800);
                   }
                   tourResumed = true;
                 } else {
-                  console.log("✅ [Tour] Validación cross-reload exitosa. Continuando en paso", savedState.currentStepIndex);
+                  console.log("✅ [Tour] Cross-reload validation successful. Continuing at step", savedState.currentStepIndex);
                   await saveTourState(savedState.workflow, savedState.currentStepIndex, savedState.isExpectedNavigation, null);
-                  iniciarTourDesdeJSON(workflowData, savedState.currentStepIndex);
+                  startTourFromJSON(workflowData, savedState.currentStepIndex);
                   tourResumed = true;
                 }
               } else {
                 await saveTourState(savedState.workflow, savedState.currentStepIndex, savedState.isExpectedNavigation, null);
-                iniciarTourDesdeJSON(workflowData, savedState.currentStepIndex);
+                startTourFromJSON(workflowData, savedState.currentStepIndex);
                 tourResumed = true;
               }
             } else {
-              iniciarTourDesdeJSON(workflowData, savedState.currentStepIndex);
+              startTourFromJSON(workflowData, savedState.currentStepIndex);
               tourResumed = true;
             }
           }
@@ -248,7 +249,7 @@ async function init() {
         await fetchAndShowWorkflows(client);
       }
     } catch (e) {
-      console.error('Error inicializando:', e);
+      console.error('Error initializing:', e);
     }
   }, 2000);
 }
@@ -266,8 +267,8 @@ async function saveTourState(workflow, stepIndex, isExpectedNavigation = false, 
       lastUpdated: Date.now()
     }
   });
-  const pendingMsg = pendingValidationIdx != null ? ` | Pendiente validar paso: ${pendingValidationIdx}` : '';
-  console.log(`💾 [Tour] Estado guardado. Paso: ${stepIndex}${pendingMsg}`);
+  const pendingMsg = pendingValidationIdx != null ? ` | Pending validation step: ${pendingValidationIdx}` : '';
+  console.log(`💾 [Tour] State saved. Step: ${stepIndex}${pendingMsg}`);
 }
 
 async function loadTourState() {
@@ -277,7 +278,7 @@ async function loadTourState() {
 
 async function clearTourState() {
   await chrome.storage.local.remove(['active_tour']);
-  console.log("🗑️ [Tour] Estado limpiado.");
+  console.log("🗑️ [Tour] State cleared.");
 }
 
 function urlsMatch(url1, url2) {
@@ -289,11 +290,8 @@ function urlsMatch(url1, url2) {
     const host1 = u1.host.replace(/^www\./, "").toLowerCase();
     const host2 = u2.host.replace(/^www\./, "").toLowerCase();
 
-    // Normalizar pathname: 
-    // 1. Quitar trailing slashes y múltiples slashes
-    // 2. IMPORTANTE: Quitar session IDs (como ;jsessionid=...) que rompen la comparación en webs gubernamentales/antiguas
     const normalizePath = (p) => p
-      .split(';')[0] // Quitar ;jsessionid o similares
+      .split(';')[0]
       .replace(/\/+$/, "")
       .replace(/\/+/g, "/")
       .toLowerCase();
@@ -304,7 +302,7 @@ function urlsMatch(url1, url2) {
     const match = host1 === host2 && path1 === path2;
 
     if (!match && host1 === host2) {
-      console.log(`[Tour] 🔍 URL mismatch en mismo host. \n  Grabado: ${path1} \n  Actual: ${path2}`);
+      console.log(`[Tour] 🔍 URL mismatch on same host. \n  Recorded: ${path1} \n  Current: ${path2}`);
     }
 
     return match;
@@ -318,71 +316,54 @@ function urlsMatch(url1, url2) {
 async function fetchAndShowWorkflows(client) {
   try {
     if (!client) {
-      console.error("[Tour] ❌ Cliente de Supabase no inicializado");
+      console.error("[Tour] ❌ Supabase client not initialized");
       return;
     }
 
-    // Fetch ALL workflows from database (no user filter)
-    console.log("🔍 [Tour] Buscando todas las guías disponibles...");
-    console.log("🔍 [Tour] Cliente Supabase:", client);
+    console.log("🔍 [Tour] Searching for all available guides...");
 
     const { data: rows, error } = await client
       .from('workflows')
       .select('*');
 
-    console.log("🔍 [Tour] Respuesta de Supabase:", { rows, error });
-
-    if (rows) console.log(`🔍 [Tour] Guías encontradas (total): ${rows.length}`);
-
     if (error) {
-      console.error("[Tour] ❌ Error descargando guías:", error);
-      console.error("[Tour] Detalles del error:", JSON.stringify(error, null, 2));
-
-      // Si el error es de autenticación, mostrar mensaje específico
-      if (error.message?.includes('JWT') || error.message?.includes('auth')) {
-        console.error("[Tour] ⚠️ Error de autenticación. Puede que necesites configurar políticas RLS en Supabase.");
-      }
+      console.error("[Tour] ❌ Error downloading guides:", error);
       return;
     }
 
     if (!rows || rows.length === 0) {
-      console.log("[Tour] No hay guías disponibles en la base de datos.");
-      mostrarMensajeSinGuias();
+      console.log("[Tour] No guides available in the database.");
+      showNoGuidesMessage();
       return;
     }
 
-    // C. Filter by Current URL
     const currentUrl = window.location.href;
-    const curObj = new URL(currentUrl);
 
     const relevantWorkflows = rows.filter(row => {
       try {
-        // Check valid structure
         if (!row.data || !row.data.drawflow) return false;
-
-        // Check URL match using the robust urlsMatch function
         return urlsMatch(row.url, currentUrl);
       } catch (e) {
         return false;
       }
     }).map(row => {
-      // Map to usable structure
-      const json = row.data;
       return {
         id: `s-${row.id}`,
         name: row.name,
         url: row.url,
         createdAt: row.created_at,
-        data: json // Keep full data in memory
+        tags: row.data.tags || [],
+        description: row.data.description || "",
+        data: row.data
       };
     });
 
     if (relevantWorkflows.length > 0) {
-      console.log(`✓ [Tour] Encontradas ${relevantWorkflows.length} guías para esta página.`);
-      crearOverlayTutoriales(relevantWorkflows);
+      console.log(`✓ [Tour] Found ${relevantWorkflows.length} guides for this page.`);
+      createTourOverlay(relevantWorkflows);
     } else {
-      console.log("[Tour] No hay guías para esta URL específica.");
-      mostrarMensajeSinGuias();
+      console.log("[Tour] No guides for this specific URL.");
+      showNoGuidesMessage();
     }
 
   } catch (err) {
@@ -390,7 +371,7 @@ async function fetchAndShowWorkflows(client) {
   }
 }
 
-function mostrarMensajeSinGuias() {
+function showNoGuidesMessage() {
   if (document.getElementById('no-tours-toast')) return;
 
   const toast = document.createElement('div');
@@ -421,9 +402,8 @@ function mostrarMensajeSinGuias() {
   setTimeout(() => { if (toast) toast.remove(); }, 4000);
 }
 
-// Mostrar el menú de selección (Grid Grande)
-function crearOverlayTutoriales(workflows) {
-  // Crear el overlay oscuro de fondo ahora que sabemos que hay tours
+// Show selection menu (Large Grid)
+function createTourOverlay(workflows) {
   if (overlay === null) {
     overlay = document.createElement('div');
     overlay.id = 'overlay-extension';
@@ -446,23 +426,22 @@ function crearOverlayTutoriales(workflows) {
     animation: slideUp 0.5s ease;
   `;
 
-  const titulo = document.createElement('h1');
-  titulo.style.cssText = `
+  const title = document.createElement('h1');
+  title.style.cssText = `
     margin: 0 0 30px 0; color: #2196F3;
     font-size: 56px; text-align: center;
   `;
-  titulo.textContent = '👋 ¡Hola! ¿Necesitas ayuda?';
-  container.appendChild(titulo);
+  title.textContent = '👋 ¡Hola! ¿Necesitas ayuda?';
+  container.appendChild(title);
 
-  const subtitulo = document.createElement('p');
-  subtitulo.style.cssText = `
+  const subtitle = document.createElement('p');
+  subtitle.style.cssText = `
     margin: 0 0 50px 0; color: #555;
     font-size: 32px; text-align: center; line-height: 1.4;
   `;
-  subtitulo.textContent = 'Guías disponibles. Pulsa sobre la guia para ver los detalles y empezar.';
-  container.appendChild(subtitulo);
+  subtitle.textContent = 'Guías disponibles. Pulsa sobre la guia para ver los detalles y empezar.';
+  container.appendChild(subtitle);
 
-  // Crear contenedor de lista (Grid)
   const grid = document.createElement('div');
   grid.style.cssText = `
     display: grid;
@@ -476,8 +455,8 @@ function crearOverlayTutoriales(workflows) {
   `;
 
   workflows.forEach((workflow) => {
-    const boton = document.createElement('button');
-    boton.style.cssText = `
+    const button = document.createElement('button');
+    button.style.cssText = `
       background: linear-gradient(135deg, #4CAF50 0%, #2E7D32 100%);
       color: white; border: none; border-radius: 25px;
       padding: 30px; 
@@ -492,7 +471,7 @@ function crearOverlayTutoriales(workflows) {
       text-align: left;
     `;
 
-    boton.innerHTML = `
+    button.innerHTML = `
       <div style="flex: 1;">
         <div style="margin-bottom: 15px; font-size: 36px; word-break: break-word;">${workflow.name}</div>
         ${workflow.tags && workflow.tags.length > 0 ? `
@@ -515,42 +494,42 @@ function crearOverlayTutoriales(workflows) {
       <div style="font-size: 60px; margin-left: 20px;">👉</div>
     `;
 
-    boton.onmouseover = () => {
-      boton.style.transform = 'translateY(-3px)';
-      boton.style.boxShadow = '0 12px 25px rgba(76, 175, 80, 0.6)';
+    button.onmouseover = () => {
+      button.style.transform = 'translateY(-3px)';
+      button.style.boxShadow = '0 12px 25px rgba(76, 175, 80, 0.6)';
     };
 
-    boton.onmouseout = () => {
-      boton.style.transform = 'translateY(0)';
-      boton.style.boxShadow = '0 8px 20px rgba(76, 175, 80, 0.4)';
+    button.onmouseout = () => {
+      button.style.transform = 'translateY(0)';
+      button.style.boxShadow = '0 8px 20px rgba(76, 175, 80, 0.4)';
     };
 
-    boton.onclick = async () => {
+    button.onclick = async () => {
       if (workflow.data) {
-        mostrarModalDetallesTour(workflow, workflows);
+        showTourDetailsModal(workflow, workflows);
       }
     };
 
-    grid.appendChild(boton);
+    grid.appendChild(button);
   });
 
   container.appendChild(grid);
   menuOverlay.appendChild(container);
 
-  const btnCerrar = document.createElement('button');
-  btnCerrar.style.cssText = `
+  const btnClose = document.createElement('button');
+  btnClose.style.cssText = `
     background: #9e9e9e; color: white; border: none;
     border-radius: 10px; padding: 15px 40px; font-size: 18px;
     font-weight: bold; cursor: pointer; display: block; margin: 0 auto;
   `;
-  btnCerrar.textContent = '✕ Cerrar';
-  btnCerrar.onclick = cerrarMenu;
+  btnClose.textContent = '✕ Cerrar';
+  btnClose.onclick = closeMenu;
 
-  container.appendChild(btnCerrar);
+  container.appendChild(btnClose);
   document.body.appendChild(menuOverlay);
 }
 
-function cerrarMenu() {
+function closeMenu() {
   if (menuOverlay) {
     menuOverlay.style.animation = 'fadeOut 0.3s ease';
     setTimeout(() => {
@@ -558,7 +537,6 @@ function cerrarMenu() {
         menuOverlay.remove();
         menuOverlay = null;
       }
-      // Eliminar también el overlay oscuro de fondo
       if (overlay) {
         overlay.remove();
         overlay = null;
@@ -567,14 +545,14 @@ function cerrarMenu() {
   }
 }
 
-function mostrarModalDetallesTour(workflow, workflows) {
+function showTourDetailsModal(workflow, workflows) {
   if (menuOverlay) {
     menuOverlay.style.display = 'none';
   }
 
-  const detallesOverlay = document.createElement('div');
-  detallesOverlay.id = 'detalles-tutorial-overlay';
-  detallesOverlay.style.cssText = `
+  const detailsOverlay = document.createElement('div');
+  detailsOverlay.id = 'detalles-tutorial-overlay';
+  detailsOverlay.style.cssText = `
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
     background: rgba(0, 0, 0, 0.85); z-index: 999999;
     display: flex; flex-direction: column; justify-content: center; align-items: center;
@@ -588,12 +566,11 @@ function mostrarModalDetallesTour(workflow, workflows) {
     text-align: center;
   `;
 
-  const titulo = document.createElement('h1');
-  titulo.style.cssText = `margin: 0 0 20px 0; color: #2196F3; font-size: 48px;`;
-  titulo.textContent = workflow.name;
-  container.appendChild(titulo);
+  const title = document.createElement('h1');
+  title.style.cssText = `margin: 0 0 20px 0; color: #2196F3; font-size: 48px;`;
+  title.textContent = workflow.name;
+  container.appendChild(title);
 
-  // Intentamos obtener tags
   const tags = workflow.tags || (workflow.data && workflow.data.tags);
   if (tags && tags.length > 0) {
     const tagsContainer = document.createElement('div');
@@ -612,7 +589,6 @@ function mostrarModalDetallesTour(workflow, workflows) {
     container.appendChild(tagsContainer);
   }
 
-  // Intentamos obtener descripción
   const description = workflow.description || (workflow.data && workflow.data.description);
   if (description) {
     const desc = document.createElement('p');
@@ -629,55 +605,55 @@ function mostrarModalDetallesTour(workflow, workflows) {
   const buttonsContainer = document.createElement('div');
   buttonsContainer.style.cssText = `display: flex; gap: 20px; justify-content: center;`;
 
-  const btnAtras = document.createElement('button');
-  btnAtras.style.cssText = `
+  const btnBack = document.createElement('button');
+  btnBack.style.cssText = `
     background: #9e9e9e; color: white; border: none; border-radius: 15px;
     padding: 20px 40px; font-size: 24px; font-weight: bold; cursor: pointer;
     transition: all 0.2s ease;
   `;
-  btnAtras.innerHTML = '← Volver';
-  btnAtras.onmouseover = () => btnAtras.style.background = '#757575';
-  btnAtras.onmouseout = () => btnAtras.style.background = '#9e9e9e';
-  btnAtras.onclick = () => {
-    detallesOverlay.remove();
+  btnBack.innerHTML = '← Volver';
+  btnBack.onmouseover = () => btnBack.style.background = '#757575';
+  btnBack.onmouseout = () => btnBack.style.background = '#9e9e9e';
+  btnBack.onclick = () => {
+    detailsOverlay.remove();
     if (menuOverlay) {
       menuOverlay.style.display = 'flex';
     }
   };
 
-  const btnEmpezar = document.createElement('button');
-  btnEmpezar.style.cssText = `
+  const btnStart = document.createElement('button');
+  btnStart.style.cssText = `
     background: #4CAF50; color: white; border: none; border-radius: 15px;
     padding: 20px 40px; font-size: 24px; font-weight: bold; cursor: pointer;
     transition: all 0.2s ease; box-shadow: 0 5px 15px rgba(76, 175, 80, 0.4);
   `;
-  btnEmpezar.innerHTML = '▶ Iniciar Tour';
-  btnEmpezar.onmouseover = () => {
-    btnEmpezar.style.transform = 'translateY(-2px)';
-    btnEmpezar.style.boxShadow = '0 8px 20px rgba(76, 175, 80, 0.6)';
+  btnStart.innerHTML = '▶ Iniciar Tour';
+  btnStart.onmouseover = () => {
+    btnStart.style.transform = 'translateY(-2px)';
+    btnStart.style.boxShadow = '0 8px 20px rgba(76, 175, 80, 0.6)';
   };
-  btnEmpezar.onmouseout = () => {
-    btnEmpezar.style.transform = 'translateY(0)';
-    btnEmpezar.style.boxShadow = '0 5px 15px rgba(76, 175, 80, 0.4)';
+  btnStart.onmouseout = () => {
+    btnStart.style.transform = 'translateY(0)';
+    btnStart.style.boxShadow = '0 5px 15px rgba(76, 175, 80, 0.4)';
   };
-  btnEmpezar.onclick = () => {
-    detallesOverlay.remove();
+  btnStart.onclick = () => {
+    detailsOverlay.remove();
     if (menuOverlay) {
       menuOverlay.remove();
       menuOverlay = null;
     }
-    iniciarTourDesdeJSON(workflow.data);
+    startTourFromJSON(workflow.data);
   };
 
-  buttonsContainer.appendChild(btnAtras);
-  buttonsContainer.appendChild(btnEmpezar);
+  buttonsContainer.appendChild(btnBack);
+  buttonsContainer.appendChild(btnStart);
   container.appendChild(buttonsContainer);
   
-  detallesOverlay.appendChild(container);
-  document.body.appendChild(detallesOverlay);
+  detailsOverlay.appendChild(container);
+  document.body.appendChild(detailsOverlay);
 }
 
-// Lógica de recorte oscuro
+// Dark Cutout Logic
 function updateOverlayCutout(element) {
   if (!overlay) return;
 
@@ -712,7 +688,6 @@ function updateOverlayOnFrame() {
     const el = document.querySelector(currentTargetSelector);
     if (el) {
       const rect = el.getBoundingClientRect();
-      // Solo actualizar si el elemento existe y tiene dimensiones (está visible)
       if (rect.width > 0 && rect.height > 0) {
         updateOverlayCutout(el);
       }
@@ -740,13 +715,12 @@ function isElementVisible(element) {
   );
 }
 
-// NUEVA Lógica de "Click to Scroll" (Manual)
-function mostrarMensajeScroll(element) {
+// "Click to Scroll" Logic (Manual)
+function showScrollMessage(element) {
   return new Promise((resolve) => {
     const rect = element.getBoundingClientRect();
-    const necesitaBajar = rect.top > window.innerHeight;
+    const needsToScrollDown = rect.top > window.innerHeight;
 
-    // Crear el overlay temporal
     const overlayModal = document.createElement('div');
     overlayModal.className = 'modal-overlay';
     overlayModal.style.zIndex = '999999';
@@ -757,14 +731,14 @@ function mostrarMensajeScroll(element) {
     modal.style.maxWidth = '600px';
     modal.style.padding = '40px';
 
-    let direccion = necesitaBajar ? 'debajo' : 'arriba';
-    let icono = necesitaBajar ? '⬇️' : '⬆️';
+    let direction = needsToScrollDown ? 'debajo' : 'arriba';
+    let icon = needsToScrollDown ? '⬇️' : '⬆️';
 
     modal.innerHTML = `
-      <div style="font-size: 80px; margin-bottom: 20px;">${icono}</div>
+      <div style="font-size: 80px; margin-bottom: 20px;">${icon}</div>
       <h3 style="color: #1976d2; margin: 10px 0 20px 0; font-size: 36px;">Siguiente paso fuera de pantalla</h3>
       <p style="font-size: 24px; line-height: 1.5; color: #333; margin-bottom: 40px;">
-        El elemento que buscamos está más ${direccion}.<br>
+        El elemento que buscamos está más ${direction}.<br>
         Pulsa el botón para ir hacia él.
       </p>
       
@@ -784,7 +758,7 @@ function mostrarMensajeScroll(element) {
           gap: 15px;
           transition: transform 0.2s;
         ">
-          ${icono} MOVER PANTALLA
+          ${icon} MOVER PANTALLA
         </button>
       </div>
     `;
@@ -795,14 +769,11 @@ function mostrarMensajeScroll(element) {
     const btn = document.getElementById('btnAutoScroll');
 
     btn.onclick = () => {
-      // Feedback visual
       btn.style.transform = 'scale(0.95)';
       btn.textContent = 'Moviendo...';
 
-      // Scroll suave
       element.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-      // Esperar brevemente y continuar
       setTimeout(() => {
         document.body.removeChild(overlayModal);
         setTimeout(resolve, 400);
@@ -811,7 +782,7 @@ function mostrarMensajeScroll(element) {
   });
 }
 
-function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
+function startTourFromJSON(tourData, initialStepIndex = 0) {
   if (typeof Shepherd === 'undefined') {
     alert('Error: El sistema de tutoriales no está disponible');
     return;
@@ -824,17 +795,14 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
 
   if (tour) tour.complete();
 
-  // Asegurar que el overlay oscuro existe (puede que no se haya creado si el tour fue reanudado)
   if (overlay === null) {
     overlay = document.createElement('div');
     overlay.id = 'overlay-extension';
     document.body.appendChild(overlay);
   }
 
-  // Ensure nodes are sorted
   const sortedNodes = tourData.drawflow.nodes.sort((a, b) => a.id - b.id);
 
-  // Save state immediately when starting (or resuming)
   saveTourState({ data: tourData, name: tourData.name || "Workflow" }, initialStepIndex, false);
 
   tour = new Shepherd.Tour({
@@ -845,13 +813,8 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
     }
   });
 
-  // Solo agregar pasos a partir del índice inicial
-  // Pero necesitamos mantener la referencia a todos para saber cuál es el "siguiente" real
-
   sortedNodes.forEach((node, index) => {
-    // Skip steps before initialStepIndex
     if (index < initialStepIndex) return;
-
     if (!node.data?.selector) return;
 
     const stepConfig = {
@@ -860,17 +823,15 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
       text: `<div style="font-size: 18px; line-height: 1.6;">${node.data.description}</div>`,
       attachTo: {
         element: node.data.selector,
-        on: 'bottom'  // Siempre abajo; el scroll-to-center garantiza espacio
+        on: 'bottom'
       },
       buttons: []
     };
 
-    // Botones
     if (index > 0) {
       stepConfig.buttons.push({
         text: '<span class="shepherd-back-icon">←</span> Anterior',
         action: async () => {
-          // Update state for previous step
           await saveTourState({ data: tourData, name: tourData.name || "Workflow" }, index - 1);
           tour.back();
         },
@@ -882,7 +843,6 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
     const isInputStep = node.data?.stepType === 'input';
 
     if (isInputStep && !isLastStep) {
-      // Pasos de input: mostrar botón "Siguiente" para que el usuario avance tras escribir
       stepConfig.buttons.push({
         text: 'Hecho <span class="shepherd-check-icon">✓</span>',
         classes: 'shepherd-button-complete',
@@ -891,32 +851,27 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
           const nextN = sortedNodes[nextIdx];
           const needsNav = nextN.data.url && !urlsMatch(nextN.data.url, window.location.href);
 
-          // ── 1. GUARDADO PREVENTIVO ──────────────────────────────────────
           await saveTourState({ data: tourData, name: tourData.name || 'Workflow' }, nextIdx, needsNav);
 
-          // ── 2. VALIDACIÓN ───────────────────────────────────────────────
           if (node.data.expected) {
-            console.log("[Validación] ⏳ Verificando estado tras input...");
+            console.log("[Validation] ⏳ Verifying state after input...");
             const ok = await waitForExpectedState(node.data.expected);
             if (!ok) {
-              console.warn("[Validación] ❌ Falló. Revirtiendo al paso actual.");
+              console.warn("[Validation] ❌ Failed. Reverting to current step.");
               await saveTourState({ data: tourData, name: tourData.name || 'Workflow' }, index, false);
               handleError(node);
               return;
             }
           }
-          // ───────────────────────────────────────────────────────────────
 
           if (needsNav) {
-            mostrarMensajeNavegacion(nextN.data.url);
+            showNavigationMessage(nextN.data.url);
             tour.cancel();
           } else {
             tour.next();
           }
         }
       });
-    } else if (!isLastStep) {
-      // Pasos de click: sin botón (el clic en el elemento avanza el tour)
     }
 
     if (isLastStep) {
@@ -932,7 +887,6 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
 
     stepConfig.beforeShowPromise = function () {
       return new Promise(async (resolve) => {
-        // Reintento de búsqueda en beforeShowPromise (máximo 2s)
         let element = null;
         let retryStart = Date.now();
 
@@ -944,7 +898,7 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
         if (element) {
           if (!isElementVisible(element)) {
             updateOverlayCutout(null);
-            await mostrarMensajeScroll(element);
+            await showScrollMessage(element);
           } else {
             element.scrollIntoView({ behavior: 'instant', block: 'center' });
           }
@@ -954,30 +908,21 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
     };
 
     tour.addStep(stepConfig);
-
   });
 
-  // Eventos del Tour
   let currentClickHandler = null;
 
   tour.on('show', (event) => {
     const step = event.step;
-    // Find the current node index based on step ID or valid steps
-    const currentStepId = step.id; // "step-X" or ID
-    // We saved state on button click, but let's confirm here?
-    // Actually relying on button click is safer for "Next".
-
     if (step?.options?.attachTo) {
       const selector = step.options.attachTo.element;
-      currentTargetSelector = selector; // Guardar el selector, no el elemento, para re-busqueda
+      currentTargetSelector = selector;
 
-      // Limpiar handlers anteriores si existen
       if (currentClickHandler && lastAttachedElement) {
         lastAttachedElement.removeEventListener('click', currentClickHandler, true);
         currentClickHandler = null;
       }
 
-      // Intervalo de búsqueda dinámica (Polling)
       let attempts = 0;
       const findInterval = setInterval(async () => {
         const el = document.querySelector(selector);
@@ -985,7 +930,7 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
 
         if (el && (el.offsetWidth > 0 || el.offsetHeight > 0)) {
           clearInterval(findInterval);
-          console.log(`✅ [Tour] Elemento encontrado tras ${attempts} intentos:`, selector);
+          console.log(`✅ [Tour] Element found after ${attempts} attempts:`, selector);
 
           currentTargetElement = el;
           lastAttachedElement = el;
@@ -994,7 +939,6 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
           window.addEventListener('scroll', handleScrollOrResize, true);
           window.addEventListener('resize', handleScrollOrResize, true);
 
-          // Buscar el nodo actual para saber si es un input step
           const globalIdx = sortedNodes.findIndex(n =>
             String(n.id) === String(step.id) ||
             `step-${sortedNodes.indexOf(n)}` === String(step.id)
@@ -1006,9 +950,7 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
           if (isInputStep) {
             el.focus();
           } else if (isDynamicStep) {
-            // PASO DINÁMICO: el usuario elige libremente (fecha, destino…)
-            // No interceptamos el clic — solo lo observamos para avanzar el tour.
-            console.log('[Tour] 🔄 Paso dinámico activo. Esperando selección del usuario...');
+            console.log('[Tour] 🔄 Dynamic step active. Waiting for user selection...');
             currentClickHandler = async (e) => {
               if (isReplaying) return;
               if (e.target.closest('.shepherd-element')) return;
@@ -1018,7 +960,6 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
 
               isReplaying = true;
               try {
-                // NO preventDefault/stopPropagation → el clic funciona con normalidad
                 const gIdx = sortedNodes.findIndex(n =>
                   String(n.id) === String(currentStep.id) ||
                   `step-${sortedNodes.indexOf(n)}` === String(currentStep.id)
@@ -1034,10 +975,9 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
                   const nextN = sortedNodes[nextIdx];
                   const needsNav = nextN.data.url && !urlsMatch(nextN.data.url, window.location.href);
                   await saveTourState({ data: tourData, name: tourData.name || 'Workflow' }, nextIdx, needsNav, null);
-                  // Esperar 300 ms para que la UI actualice antes de avanzar el tour
                   setTimeout(() => {
                     if (needsNav) {
-                      mostrarMensajeNavegacion(nextN.data.url || '');
+                      showNavigationMessage(nextN.data.url || '');
                       tour.cancel();
                     } else {
                       tour.next();
@@ -1046,13 +986,13 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
                   }, 300);
                 }
               } catch (err) {
-                console.error('❌ [Tour] Error en paso dinámico:', err);
+                console.error('❌ [Tour] Error in dynamic step:', err);
                 isReplaying = false;
               }
             };
             el.addEventListener('click', currentClickHandler, true);
           } else {
-            // Lógica Click-to-Advance
+            // Click-to-Advance Logic
             currentClickHandler = async (e) => {
               if (isReplaying) return;
               if (e.target.closest('.shepherd-element')) return;
@@ -1088,12 +1028,6 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
                   const hasExpected = !!currentNode?.data?.expected;
                   const needsNav = nextN.data.url && !urlsMatch(nextN.data.url, window.location.href);
 
-                  // ── 1. GUARDADO PREVENTIVO ────────────────────────────────────────
-                  // Si el paso tiene 'expected', siempre guardamos pendingValidationIdx
-                  // independientemente de si hay navegación o no.
-                  // - Con navegación: init() en la nueva página valida el expected.
-                  // - Sin navegación: el paso 3 valida aquí y limpia el flag si pasa.
-                  // - Form POST que recarga la misma URL: init() detecta el flag y valida.
                   const pendingIdx = hasExpected ? globalIdxClick : null;
                   await saveTourState(
                     { data: tourData, name: tourData.name || 'Workflow' },
@@ -1102,43 +1036,38 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
                     pendingIdx
                   );
 
-                  // ── 2. DISPARAR EL CLIC ──────────────────────────────────────────
                   setTimeout(() => {
                     try {
                       simulateFullClick(el);
                     } catch (err) {
-                      console.error("❌ [Tour] Error al simular clic:", err);
+                      console.error("❌ [Tour] Error simulating click:", err);
                     } finally {
                       setTimeout(() => isReplaying = false, 600);
                     }
                   }, 50);
 
-                  // ── 3. VALIDACIÓN INMEDIATA (si la página NO navega) ─────────────
-                  // Si hay navegación, esta parte no llega a ejecutarse (la página
-                  // muere). En ese caso, init() en la nueva página manejará la validación.
                   if (hasExpected && !needsNav) {
-                    console.log("[Validación] ⏳ Verificando efecto del clic (sin navegación)...");
+                    console.log("[Validation] ⏳ Verifying click effect (no navigation)...");
                     const ok = await waitForExpectedState(currentNode.data.expected);
                     if (!ok) {
-                      console.warn("[Validación] ❌ Estado no alcanzado. Revirtiendo al paso", globalIdxClick);
+                      console.warn("[Validation] ❌ State not reached. Reverting to step", globalIdxClick);
                       await saveTourState({ data: tourData, name: tourData.name || 'Workflow' }, globalIdxClick, false, null);
                       handleError(currentNode);
                       return;
                     }
-                    console.log("[Validación] ✅ Estado confirmado. Limpiando flag pendiente.");
-                    // Limpiar el flag (no era necesario porque needsNav=false, pero por limpieza)
+                    console.log("[Validation] ✅ State confirmed. Clearing pending flag.");
                     await saveTourState({ data: tourData, name: tourData.name || 'Workflow' }, nextIdx, false, null);
                   }
 
                   if (needsNav) {
-                    mostrarMensajeNavegacion(nextN.data.url || '');
+                    showNavigationMessage(nextN.data.url || '');
                     tour.cancel();
                   } else {
                     tour.next();
                   }
                 }
               } catch (err) {
-                console.error("❌ [Tour] Error en clic:", err);
+                console.error("❌ [Tour] Error on click:", err);
                 isReplaying = false;
               }
             };
@@ -1146,9 +1075,9 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
           }
         }
 
-        if (attempts > 20) { // 4 segundos total (20 * 200ms)
+        if (attempts > 20) {
           clearInterval(findInterval);
-          console.warn(`⏳ [Tour] Tiempo agotado buscando elemento:`, selector);
+          console.warn(`⏳ [Tour] Timeout looking for element:`, selector);
         }
       }, 200);
     }
@@ -1164,7 +1093,6 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
     }
 
     currentTargetElement = null;
-    // No limpiamos el overlay aquí: el recorte se actualizará en el siguiente paso
   });
 
   tour.on('complete', () => {
@@ -1178,24 +1106,21 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
     currentTargetElement = null;
 
     updateOverlayCutout(null);
-    clearTourState(); // Ensure cleared
-    mostrarMensajeFinal(tourData.name || "");
+    clearTourState();
+    showFinalMessage(tourData.name || "");
   });
 
   tour.on('cancel', () => {
     window.removeEventListener('scroll', handleScrollOrResize, true);
     window.removeEventListener('resize', handleScrollOrResize, true);
     currentTargetElement = null;
-    // No limpiamos el overlay aquí: si es navegación la página recargará;
-    // si el usuario cancela manualmente el recorte desaparecerá al recargar.
   });
 
-  console.log(`✓ Iniciando tutorial: ${tourData.name} desde paso ${initialStepIndex}`);
+  console.log(`✓ Starting tutorial: ${tourData.name} from step ${initialStepIndex}`);
   setTimeout(() => tour.start(), 500);
 }
 
-function mostrarMensajeNavegacion(nextUrl) {
-  // Marcar que la navegación es del tour para que beforeunload no limpie el estado
+function showNavigationMessage(nextUrl) {
   isTourNavigation = true;
 
   const msg = document.createElement('div');
@@ -1212,7 +1137,7 @@ function mostrarMensajeNavegacion(nextUrl) {
   setTimeout(() => msg.remove(), 5000);
 }
 
-function mostrarMensajeFinal(nombreTutorial) {
+function showFinalMessage(tourName) {
   const overlay = document.createElement('div');
   overlay.style.cssText = `
     position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -1233,7 +1158,7 @@ function mostrarMensajeFinal(nombreTutorial) {
     <h2 style="color: #4CAF50; margin: 0 0 20px 0; font-size: 32px;">¡Felicidades!</h2>
     <p style="font-size: 20px; color: #333; margin-bottom: 30px; line-height: 1.6;">
       Has completado el tutorial<br>
-      <strong>"${nombreTutorial}"</strong>
+      <strong>"${tourName}"</strong>
     </p>
     <button id="btnCerrarFinal" style="
       background: #4CAF50; color: white; border: none; border-radius: 10px;
@@ -1252,28 +1177,22 @@ function mostrarMensajeFinal(nombreTutorial) {
 
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SISTEMA DE VALIDACIÓN DE ESTADO ESPERADO
-// Comprueba si la interfaz ha alcanzado el estado esperado tras ejecutar un paso.
-// Los pasos del workflow pueden incluir un campo opcional "expected":
-//   { visible: ["#sel1"], hidden: ["#sel2"], text: "Texto esperado" }
+// EXPECTED STATE VALIDATION SYSTEM
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Comprueba de forma síncrona si el estado actual de la interfaz
- * coincide con el estado esperado definido en el paso.
- *
- * @param {Object} expected - { visible: string[], hidden: string[], text: string }
- * @returns {boolean} true si se cumple todo el estado esperado
+ * Synchronously checks if the current state of the interface
+ * matches the expected state defined in the step.
  */
 function checkExpectedState(expected) {
   if (!expected) return true;
 
-  // 1. Comprobar selectores que deben estar VISIBLES
+  // 1. Check selectors that must be VISIBLE
   if (expected.visible && expected.visible.length > 0) {
     for (const selector of expected.visible) {
       const el = document.querySelector(selector);
       if (!el) {
-        console.log(`[Validación] ❌ Elemento visible faltante: ${selector}`);
+        console.log(`[Validation] ❌ Missing visible element: ${selector}`);
         return false;
       }
       const rect = el.getBoundingClientRect();
@@ -1285,13 +1204,13 @@ function checkExpectedState(expected) {
         style.display !== 'none'
       );
       if (!isVisible) {
-        console.log(`[Validación] ❌ Elemento no es visible: ${selector}`);
+        console.log(`[Validation] ❌ Element is not visible: ${selector}`);
         return false;
       }
     }
   }
 
-  // 2. Comprobar selectores que deben estar OCULTOS
+  // 2. Check selectors that must be HIDDEN
   if (expected.hidden && expected.hidden.length > 0) {
     for (const selector of expected.hidden) {
       const el = document.querySelector(selector);
@@ -1305,20 +1224,20 @@ function checkExpectedState(expected) {
           style.display !== 'none'
         );
         if (isVisible) {
-          console.log(`[Validación] ❌ Elemento debería estar oculto pero es visible: ${selector}`);
+          console.log(`[Validation] ❌ Element should be hidden but is visible: ${selector}`);
           return false;
         }
       }
     }
   }
 
-  // 3. Comprobar texto esperado (Fuzzy Matching)
+  // 3. Check expected text (Fuzzy Matching)
   if (expected.text) {
     const bodyText = (document.body.innerText || '').replace(/\s+/g, ' ').trim().toLowerCase();
     const targetText = expected.text.replace(/\s+/g, ' ').trim().toLowerCase();
 
     if (!bodyText.includes(targetText)) {
-      console.log(`[Validación] ❌ Texto esperado no encontrado. Buscando: "${targetText.substring(0, 30)}..."`);
+      console.log(`[Validation] ❌ Expected text not found. Looking for: "${targetText.substring(0, 30)}..."`);
       return false;
     }
   }
@@ -1327,12 +1246,8 @@ function checkExpectedState(expected) {
 }
 
 /**
- * Espera de forma asíncrona (polling cada 200 ms) hasta que el estado
- * esperado se cumpla o se agote el tiempo límite.
- *
- * @param {Object} expected - { visible: string[], hidden: string[], text: string }
- * @param {number} [timeout=4000] - Tiempo máximo de espera en ms
- * @returns {Promise<boolean>} true si el estado se cumplió, false si se agotó el tiempo
+ * Asynchronously waits (polling every 200 ms) until the expected
+ * state is met or the timeout is reached.
  */
 function waitForExpectedState(expected, timeout = 4000) {
   if (!expected) return Promise.resolve(true);
@@ -1348,7 +1263,7 @@ function waitForExpectedState(expected, timeout = 4000) {
       }
       elapsed += interval;
       if (elapsed >= timeout) {
-        console.warn('[Validación] ⏰ Tiempo agotado esperando el estado esperado.', expected);
+        console.warn('[Validation] ⏰ Timeout waiting for expected state.', expected);
         resolve(false);
         return;
       }
@@ -1360,27 +1275,21 @@ function waitForExpectedState(expected, timeout = 4000) {
 }
 
 /**
- * Hace scroll hasta el elemento y añade una animación temporal de resaltado.
- *
- * @param {Element} element - Elemento DOM a resaltar
+ * Scrolls to the element and adds a temporary highlight animation.
  */
 function highlightElement(element) {
   if (!element) return;
 
-  // Scroll suave hasta el elemento
   element.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-  // Guardar estilos originales para restaurarlos
   const originalOutline = element.style.outline;
   const originalBoxShadow = element.style.boxShadow;
   const originalTransition = element.style.transition;
 
-  // Aplicar resaltado visual llamativo
   element.style.transition = 'outline 0.2s ease, box-shadow 0.2s ease';
   element.style.outline = '3px solid #e53935';
   element.style.boxShadow = '0 0 0 6px rgba(229, 57, 53, 0.35)';
 
-  // Efecto de parpadeo para captar la atención
   let pulseCount = 0;
   const pulseInterval = setInterval(() => {
     pulseCount++;
@@ -1391,7 +1300,6 @@ function highlightElement(element) {
     }
   }, 300);
 
-  // Restaurar estilos originales tras 3.5 s
   setTimeout(() => {
     element.style.outline = originalOutline;
     element.style.boxShadow = originalBoxShadow;
@@ -1400,19 +1308,16 @@ function highlightElement(element) {
 }
 
 /**
- * Gestiona el error cuando el estado esperado no se cumple.
- *
- * @param {Object} node - Nodo del workflow que no superó la validación
+ * Handles error when the expected state is not met.
  */
 async function handleError(node) {
-  console.warn('[Validación] ❌ Estado esperado no alcanzado. Activando recuperación guiada.');
+  console.warn('[Validation] ❌ Expected state not reached. Activating guided recovery.');
 
-  // ── CASO A: campo inválido detectable ───────────────────────────────────
   const invalidField = document.querySelector(':invalid');
   if (invalidField) {
-    console.log('[Validación] 🔎 Campo inválido encontrado:', invalidField);
+    console.log('[Validation] 🔎 Invalid field found:', invalidField);
     highlightElement(invalidField);
-    await mostrarMensajeError(
+    await showErrorMessage(
       '¡Ups! Un pequeño despiste 😅',
       'Parece que hay algún dato que no es del todo correcto.',
       '¡No te preocupes! Vamos a revisarlo juntos para poder continuar.'
@@ -1420,38 +1325,30 @@ async function handleError(node) {
     return;
   }
 
-  // ── CASO B: sin error específico detectable ──────────────────────────────
-  console.log('[Validación] 🔁 Sin campo inválido. Volviendo al primer paso de la página.');
-  await mostrarMensajeError(
+  console.log('[Validation] 🔁 No invalid field. Returning to the first step of the page.');
+  await showErrorMessage(
     'No ha salido a la primera, ¡pero no pasa nada! 😊',
     'A veces la tecnología es un poco caprichosa.',
     'Vamos a volver a intentarlo tranquilamente, paso a paso.'
   );
 
-  // Volver al primer paso cuya URL coincide con la actual
   if (tour) {
     const steps = tour.steps;
     if (steps && steps.length > 0) {
-      // El primer paso del tour activo corresponde al primero en esta página
       tour.show(steps[0].id);
     }
   }
 }
 
 /**
- * Muestra un modal de error en el centro de la pantalla.
- *
- * @param {string} titulo  - Título principal del mensaje
- * @param {string} mensaje - Mensaje descriptivo
- * @param {string} [ayuda] - Texto de ayuda adicional (opcional)
+ * Displays an error modal in the center of the screen.
  */
-function mostrarMensajeError(titulo, mensaje, ayuda = '') {
+function showErrorMessage(title, message, help = '') {
   return new Promise((resolve) => {
-    // Evitar duplicados
-    const existente = document.getElementById('tour-error-toast');
-    const existenteBackdrop = document.getElementById('tour-error-backdrop');
-    if (existente) existente.remove();
-    if (existenteBackdrop) existenteBackdrop.remove();
+    const existing = document.getElementById('tour-error-toast');
+    const existingBackdrop = document.getElementById('tour-error-backdrop');
+    if (existing) existing.remove();
+    if (existingBackdrop) existingBackdrop.remove();
 
     const backdrop = document.createElement('div');
     backdrop.id = 'tour-error-backdrop';
@@ -1486,12 +1383,12 @@ function mostrarMensajeError(titulo, mensaje, ayuda = '') {
 
     modal.innerHTML = `
       <div style="font-weight: 800; font-size: 24px; margin-bottom: 15px; color: #d32f2f;">
-        ${titulo}
+        ${title}
       </div>
-      <div style="color: #444; font-size: 18px; margin-bottom: ${ayuda ? '10px' : '0'}">
-        ${mensaje}
+      <div style="color: #444; font-size: 18px; margin-bottom: ${help ? '10px' : '0'}">
+        ${message}
       </div>
-      ${ayuda ? `<div style="color: #666; font-size: 16px; margin-bottom: 25px;">${ayuda}</div>` : ''}
+      ${help ? `<div style="color: #666; font-size: 16px; margin-bottom: 25px;">${help}</div>` : ''}
       <button id="btn-tour-error-retry" style="
         background: linear-gradient(135deg, #e53935 0%, #c62828 100%);
         color: white;
@@ -1508,7 +1405,6 @@ function mostrarMensajeError(titulo, mensaje, ayuda = '') {
       </button>
     `;
 
-    // Animaciones
     if (!document.getElementById('tour-error-style')) {
       const s = document.createElement('style');
       s.id = 'tour-error-style';
@@ -1547,10 +1443,10 @@ function mostrarMensajeError(titulo, mensaje, ayuda = '') {
       setTimeout(() => {
         modal.remove();
         backdrop.remove();
-        resolve(); // RESOLVE PROMISE ON CLICK
+        resolve();
       }, 300);
     };
   });
 }
 
-console.log('✓ Sistema cargado');
+console.log('✓ System loaded');

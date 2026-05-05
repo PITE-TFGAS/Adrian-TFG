@@ -11,7 +11,7 @@
   will-change: clip-path;
 }
 
-/* Recorte en el overlay para el elemento activo: clip-path se gestiona en JS */
+/* Overlay cutout for the active element: clip-path is managed in JS */
 
 .shepherd-element {
   z-index: 1000001 !important;
@@ -22,7 +22,7 @@
   z-index: 999998 !important;
 }
 
-/* Estilo personalizado para los tooltips de Shepherd */
+/* Custom style for Shepherd tooltips */
 .shepherd-content {
   background: white;
   border-radius: 8px;
@@ -75,7 +75,7 @@
   background: #4b5563;
 }
 
-/* Estilos para el modal de scroll */
+/* Styles for the scroll modal */
 .modal-overlay {
   position: fixed;
   top: 0;

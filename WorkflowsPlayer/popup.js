@@ -46,7 +46,7 @@ AuthManager.getCurrentUser().then(user => {
 });
 
 btnLogin.addEventListener('click', async () => {
-  authMessage.textContent = 'Iniciando...';
+  authMessage.textContent = 'Iniciando sesión...';
   const { error } = await AuthManager.login(emailInput.value, passwordInput.value);
   if (error) authMessage.textContent = error.message;
   else authMessage.textContent = '';
@@ -135,7 +135,7 @@ async function syncWorkflows(user) {
 
   } catch (error) {
     console.error(error);
-    statusDiv.innerHTML = '❌ Error sincronizando: ' + error.message;
+    statusDiv.innerHTML = '❌ Error al sincronizar: ' + error.message;
     statusDiv.className = 'error';
   }
 }
@@ -145,6 +145,6 @@ if (btnSync) {
   btnSync.addEventListener('click', async () => {
     const user = await AuthManager.getCurrentUser();
     if (user) await syncWorkflows(user);
-    else alert('Inicia sesión primero');
+    else alert('Por favor, inicia sesión primero');
   });
 }

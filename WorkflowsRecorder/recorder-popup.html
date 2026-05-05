@@ -1,322 +1,117 @@
 <!DOCTYPE html>
-<html>
-
+<html lang="es">
 <head>
   <meta charset="UTF-8">
+  <title>Grabador de Workflows</title>
   <style>
     body {
-      width: 400px;
+      width: 320px;
       padding: 20px;
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: #f8f9fa;
+      color: #333;
       margin: 0;
     }
-
-    h2 {
-      margin-top: 0;
-      color: #d32f2f;
+    .header {
       display: flex;
       align-items: center;
-      gap: 10px;
-    }
-
-    .status {
-      padding: 15px;
-      border-radius: 8px;
+      gap: 12px;
       margin-bottom: 20px;
-      font-weight: 500;
+      padding-bottom: 15px;
+      border-bottom: 2px solid #eee;
     }
-
-    .status.idle {
-      background: #e3f2fd;
-      border-left: 4px solid #2196F3;
-      color: #1565c0;
-    }
-
-    .status.recording {
-      background: #ffebee;
-      border-left: 4px solid #f44336;
-      color: #c62828;
-      animation: pulse 2s infinite;
-    }
-
-    @keyframes pulse {
-
-      0%,
-      100% {
-        opacity: 1;
-      }
-
-      50% {
-        opacity: 0.7;
-      }
-    }
-
-    .form-group {
-      margin-bottom: 15px;
-    }
-
-    .form-group label {
-      display: block;
-      margin-bottom: 5px;
-      color: #333;
-      font-weight: 500;
-      font-size: 14px;
-    }
-
-    .form-group input {
+    .header h2 { margin: 0; font-size: 20px; color: #d32f2f; }
+    
+    .form-group { margin-bottom: 20px; }
+    label { display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; }
+    input {
       width: 100%;
       padding: 10px;
       border: 2px solid #e0e0e0;
-      border-radius: 6px;
-      font-size: 14px;
+      border-radius: 8px;
       box-sizing: border-box;
+      transition: border-color 0.2s;
     }
-
-    .form-group input:focus {
-      outline: none;
-      border-color: #d32f2f;
-    }
-
-    .form-group input:disabled {
-      background: #f5f5f5;
-      cursor: not-allowed;
-    }
-
+    input:focus { outline: none; border-color: #d32f2f; }
+    
+    .controls { display: flex; flex-direction: column; gap: 12px; }
     button {
-      width: 100%;
       padding: 12px;
       border: none;
-      border-radius: 6px;
+      border-radius: 8px;
       font-size: 15px;
       font-weight: 600;
       cursor: pointer;
-      transition: all 0.2s ease;
-      margin-bottom: 10px;
-    }
-
-    .btn-start {
-      background: #d32f2f;
-      color: white;
-    }
-
-    .btn-start:hover:not(:disabled) {
-      background: #b71c1c;
-      transform: translateY(-2px);
-      box-shadow: 0 4px 8px rgba(211, 47, 47, 0.3);
-    }
-
-    .btn-stop {
-      background: #f44336;
-      color: white;
-    }
-
-    .btn-stop:hover {
-      background: #d32f2f;
-    }
-
-    .btn-download {
-      background: #4CAF50;
-      color: white;
-    }
-
-    .btn-download:hover {
-      background: #45a049;
-    }
-
-    .btn-clear {
-      background: #9e9e9e;
-      color: white;
-    }
-
-    .btn-clear:hover {
-      background: #757575;
-    }
-
-    button:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      transform: none !important;
-    }
-
-    .info {
-      background: #fff3cd;
-      border-left: 4px solid #ffc107;
-      padding: 12px;
-      margin-bottom: 15px;
-      border-radius: 4px;
-      font-size: 13px;
-      line-height: 1.5;
-    }
-
-    .steps-count {
-      background: #f5f5f5;
-      padding: 12px;
-      border-radius: 6px;
-      text-align: center;
-      margin-bottom: 15px;
-    }
-
-    .steps-count strong {
-      color: #d32f2f;
-      font-size: 24px;
-      display: block;
-      margin-bottom: 5px;
-    }
-
-    .steps-count span {
-      color: #666;
-      font-size: 13px;
-    }
-
-    .url-display {
-      background: #f5f5f5;
-      padding: 10px;
-      border-radius: 4px;
-      font-size: 12px;
-      color: #666;
-      margin-bottom: 15px;
-      word-break: break-all;
-    }
-
-    .url-display strong {
-      color: #333;
-    }
-
-    .tag-chip {
-      display: inline-flex;
+      display: flex;
       align-items: center;
-      gap: 6px;
-      background: #e3f2fd;
-      color: #1976d2;
-      padding: 4px 10px;
-      border-radius: 16px;
-      font-size: 12px;
-      font-weight: 500;
-      border: 1px solid #90caf9;
+      justify-content: center;
+      gap: 10px;
+      transition: all 0.2s;
     }
+    
+    #btn-start { background: #d32f2f; color: white; }
+    #btn-start:hover { background: #b71c1c; }
+    #btn-start:disabled { background: #ccc; cursor: not-allowed; }
+    
+    #btn-stop { background: #333; color: white; display: none; }
+    #btn-stop:hover { background: #000; }
+    
+    #btn-clear { background: #f5f5f5; color: #666; font-size: 13px; }
+    #btn-clear:hover { background: #eee; }
+    
+    #btn-save { background: #4caf50; color: white; display: none; }
+    #btn-save:hover { background: #388e3c; }
 
-    .tag-chip.auto-tag {
-      background: #fff3cd;
-      color: #856404;
-      border-color: #ffc107;
-    }
-
-    .tag-chip .remove-tag {
-      cursor: pointer;
-      font-weight: bold;
-      opacity: 0.7;
-      transition: opacity 0.2s;
-    }
-
-    .tag-chip .remove-tag:hover {
-      opacity: 1;
-    }
-
-    .tag-chip.auto-tag .remove-tag {
+    #recording-status {
+      text-align: center;
+      padding: 10px;
+      border-radius: 8px;
+      background: #fff3e0;
+      color: #e65100;
+      font-size: 14px;
+      margin-bottom: 15px;
       display: none;
+      border: 1px solid #ffe0b2;
     }
   </style>
 </head>
-
 <body>
-  <div id="authContainer" style="margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 15px;">
-    <div id="loginForm">
-      <div style="margin-bottom: 10px;">
-        <input type="email" id="email" placeholder="Email"
-          style="width: 100%; padding: 8px; margin-bottom: 5px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px;">
-        <input type="password" id="password" placeholder="Contraseña"
-          style="width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px;">
-      </div>
-      <div style="display: flex; gap: 10px;">
-        <button id="btnLogin" style="background: #2196F3; color: white; padding: 8px; margin-bottom: 0;">Entrar</button>
-        <button id="btnRegister"
-          style="background: white; color: #2196F3; border: 1px solid #2196F3; padding: 8px; margin-bottom: 0;">Registrar</button>
-      </div>
-      <div id="authMessage" style="color: red; font-size: 12px; margin-top: 5px;"></div>
-    </div>
-    <div id="userInfo" style="display: none; align-items: center; justify-content: space-between;">
-      <span id="userEmail" style="font-weight: 500; font-size: 14px; color: #333;"></span>
-      <button id="btnLogout"
-        style="width: auto; padding: 5px 10px; font-size: 12px; margin: 0; background: #607d8b; color: white;">Salir</button>
-    </div>
-  </div>
-  <h2>
-    <span style="font-size: 28px;">🎥</span>
-    Grabador de Workflows
-  </h2>
-
-  <div id="statusIdle" class="status idle">
-    <strong>⏸️ Listo para grabar</strong><br>
-    Introduce los datos y presiona "Iniciar Grabación"
+  <div class="header">
+    <span style="font-size: 24px;">🎥</span>
+    <h2>Grabador</h2>
   </div>
 
-  <div id="statusRecording" class="status recording" style="display: none;">
-    <strong>🔴 GRABANDO</strong><br>
-    Haz clic en los elementos de la página para registrarlos
+  <div id="recording-status">
+    🔴 Grabando... <strong id="steps-count">0</strong> pasos
   </div>
 
-  <div class="info">
-    <strong>ℹ️ Instrucciones:</strong><br>
-    1. Introduce el nombre del flujo<br>
-    2. Haz clic en "Iniciar Grabación"<br>
-    3. Haz clic en los elementos que quieres registrar<br>
-    4. Describe cada elemento cuando se te pida<br>
-    5. Haz clic en "Detener Grabación"<br>
-    6. Descarga el archivo JSON
+  <div class="form-group" id="name-container">
+    <label for="workflow-name">Nombre del tutorial:</label>
+    <input type="text" id="workflow-name" placeholder="Ej: Cómo pedir cita">
   </div>
 
-  <div class="form-group">
-    <label for="workflowName">Nombre del Workflow *</label>
-    <input type="text" id="workflowName" placeholder="Ej: Tutorial de Transferencias" required>
+  <div class="controls">
+    <button id="btn-start">
+      <span>▶️</span> Empezar a grabar
+    </button>
+    <button id="btn-stop">
+      <span>⏹️</span> Terminar grabación
+    </button>
+    <button id="btn-save">
+      <span>☁️</span> Subir a la nube
+    </button>
+    <button id="btn-clear">
+      <span>🗑️</span> Borrar todo
+    </button>
   </div>
 
-  <div class="form-group">
-    <label for="workflowDescription">Descripción (opcional)</label>
-    <textarea id="workflowDescription" placeholder="Ej: Este tutorial te enseña a realizar una transferencia bancaria paso a paso" style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 14px; box-sizing: border-box; resize: vertical; min-height: 60px; font-family: inherit;"></textarea>
+  <div id="auth-status" style="margin-top: 15px; font-size: 12px; color: #666; text-align: center;">
+    <!-- Auth info -->
   </div>
-
-  <div class="form-group" id="tagsGroup" style="display: none;">
-    <label for="tagsInput">Etiquetas (opcional)</label>
-    <div style="display: flex; gap: 5px; margin-bottom: 8px;">
-      <input type="text" id="tagsInput" placeholder="Escribe una etiqueta y presiona Enter" style="flex: 1;">
-    </div>
-    <div id="tagsContainer" style="display: flex; flex-wrap: wrap; gap: 6px; min-height: 30px;">
-      <!-- Tags will be added here dynamically -->
-    </div>
-    <small style="color: #666; font-size: 12px; display: block; margin-top: 5px;">
-      💡 Presiona Enter para añadir. La etiqueta "review needed" se añade automáticamente.
-    </small>
-  </div>
-
-  <div id="urlDisplay" class="url-display" style="display: none;">
-    <strong>URL:</strong> <span id="currentUrl"></span>
-  </div>
-
-  <div id="stepsCount" class="steps-count" style="display: none;">
-    <strong id="countNumber">0</strong>
-    <span>pasos grabados</span>
-  </div>
-
-  <button id="btnStart" class="btn-start">
-    ▶️ Iniciar Grabación
-  </button>
-
-  <button id="btnStop" class="btn-stop" style="display: none;">
-    ⏹️ Detener Grabación
-  </button>
-
-  <button id="btnUpload" class="btn-download" style="display: none;">
-    ☁️ Guardar en la Nube
-  </button>
-
-  <button id="btnClear" class="btn-clear" style="display: none;">
-    🗑️ Nueva Grabación
-  </button>
 
   <script src="supabase.min.js"></script>
   <script src="supabase-client.js"></script>
   <script src="auth.js"></script>
   <script src="recorder-popup.js"></script>
 </body>
-
 </html>

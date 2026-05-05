@@ -1,6 +1,6 @@
-/* recorder-styles.css - Estilos para el grabador */
+/* recorder-styles.css - Styles for the recorder */
 
-/* Overlay de grabación */
+/* Recording Overlay */
 #recording-overlay {
   position: fixed;
   top: 20px;
@@ -72,7 +72,7 @@
   font-size: 18px;
 }
 
-/* Modal para descripción */
+/* Description Modal */
 .recording-modal-overlay {
   position: fixed;
   top: 0;
@@ -219,7 +219,7 @@
   background: #757575;
 }
 
-/* Efecto de confirmación */
+/* Confirmation Effect */
 .recording-checkmark {
   position: fixed;
   width: 60px;

@@ -1,11 +1,10 @@
-
 // auth.js
-// Gestión de autenticación con Supabase
+// Authentication management with Supabase
 
 const AuthManager = {
-  // Iniciar sesión
+  // Log in
   async login(email, password) {
-    if (!supabaseClient) return { error: { message: "Supabase no inicializado" } };
+    if (!supabaseClient) return { error: { message: "Supabase not initialized" } };
 
     const { data, error } = await supabaseClient.auth.signInWithPassword({
       email: email,
@@ -14,9 +13,9 @@ const AuthManager = {
     return { data, error };
   },
 
-  // Registrarse
+  // Register
   async register(email, password) {
-    if (!supabaseClient) return { error: { message: "Supabase no inicializado" } };
+    if (!supabaseClient) return { error: { message: "Supabase not initialized" } };
 
     const { data, error } = await supabaseClient.auth.signUp({
       email: email,
@@ -25,15 +24,15 @@ const AuthManager = {
     return { data, error };
   },
 
-  // Cerrar sesión
+  // Log out
   async logout() {
-    if (!supabaseClient) return { error: { message: "Supabase no inicializado" } };
+    if (!supabaseClient) return { error: { message: "Supabase not initialized" } };
 
     const { error } = await supabaseClient.auth.signOut();
     return { error };
   },
 
-  // Obtener usuario actual
+  // Get current user
   async getCurrentUser() {
     if (!supabaseClient) return null;
 
@@ -41,7 +40,7 @@ const AuthManager = {
     return session ? session.user : null;
   },
 
-  // Escuchar cambios de estado
+  // Listen for state changes
   onAuthStateChange(callback) {
     if (!supabaseClient) return;
 
