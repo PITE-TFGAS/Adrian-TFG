@@ -646,28 +646,24 @@ function updateOverlayCutout(element) {
   if (!overlay) return;
 
   if (!element) {
-    overlay.style.clipPath = '';
+    overlay.style.top = '50%';
+    overlay.style.left = '50%';
+    overlay.style.width = '0px';
+    overlay.style.height = '0px';
+    overlay.style.border = '0px solid transparent';
     overlay.classList.remove('has-cutout');
     return;
   }
 
   const rect = element.getBoundingClientRect();
-  const padding = 15;
+  const padding = 12; // Adjusted slightly for the border
 
-  const clipPath = `polygon(
-    0% 0%,
-    0% 100%,
-    ${rect.left - padding}px 100%,
-    ${rect.left - padding}px ${rect.top - padding}px,
-    ${rect.right + padding}px ${rect.top - padding}px,
-    ${rect.right + padding}px ${rect.bottom + padding}px,
-    ${rect.left - padding}px ${rect.bottom + padding}px,
-    ${rect.left - padding}px 100%,
-    100% 100%,
-    100% 0%
-  )`;
-
-  overlay.style.clipPath = clipPath;
+  overlay.style.top = `${rect.top - padding}px`;
+  overlay.style.left = `${rect.left - padding}px`;
+  overlay.style.width = `${rect.width + padding * 2}px`;
+  overlay.style.height = `${rect.height + padding * 2}px`;
+  
+  overlay.style.border = '3px solid #FFD700'; // Yellow/Gold border
   overlay.classList.add('has-cutout');
 }
 
@@ -1101,7 +1097,22 @@ function startTourFromJSON(tourData, initialStepIndex = 0) {
   tour.on('cancel', () => {
     window.removeEventListener('scroll', handleScrollOrResize, true);
     window.removeEventListener('resize', handleScrollOrResize, true);
+
+    if (currentTargetElement && currentClickHandler) {
+      currentTargetElement.removeEventListener('click', currentClickHandler, true);
+      currentClickHandler = null;
+    }
     currentTargetElement = null;
+
+    if (!isTourNavigation) {
+      updateOverlayCutout(null);
+      clearTourState();
+      if (overlay) {
+        overlay.remove();
+        overlay = null;
+      }
+      console.log('🛑 [Tour] Tour cancelled by user.');
+    }
   });
 
   console.log(`✓ Starting tutorial: ${tourData.name} from step ${initialStepIndex}`);
