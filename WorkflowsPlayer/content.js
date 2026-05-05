@@ -5,6 +5,10 @@ let tour = null;
 let overlay = null;
 let menuOverlay = null;
 
+// Bandera para saber si la navegación fue iniciada por el tour (no por el usuario)
+// Evita que beforeunload limpie el estado del tour durante la navegación entre pasos
+let isTourNavigation = false;
+
 // Variables para el seguimiento del elemento actual
 let currentTargetElement = null;
 let animationFrameId = null;
@@ -37,6 +41,16 @@ if (document.readyState === 'loading') {
   init();
 }
 
+// Limpiar el tour activo cuando el usuario cierra o abandona la pestaña
+// SOLO si NO es una navegación programada por el propio tour
+window.addEventListener('beforeunload', () => {
+  if (!isTourNavigation) {
+    try {
+      chrome.storage.local.remove(['active_tour']);
+    } catch (e) { /* ignorar */ }
+  }
+});
+
 async function init() {
   // Verificar contexto de extensión (evitar error de script huérfano)
   if (!chrome.runtime || !chrome.runtime.id) {
@@ -44,11 +58,18 @@ async function init() {
     return;
   }
 
-  // Crear el overlay para oscurecer
-  if (overlay === null) {
-    overlay = document.createElement('div');
-    overlay.id = 'overlay-extension';
-    document.body.appendChild(overlay);
+  // Si hay un tour activo, crear el overlay inmediatamente (antes del delay de 2s)
+  // para que no haya parpadeo al navegar entre páginas durante un tour
+  try {
+    const result = await chrome.storage.local.get(['active_tour']);
+    if (result.active_tour && result.active_tour.isActive && overlay === null) {
+      overlay = document.createElement('div');
+      overlay.id = 'overlay-extension';
+      document.body.appendChild(overlay);
+      console.log('🔲 [Tour] Overlay creado inmediatamente (tour activo detectado).');
+    }
+  } catch (e) {
+    // Si falla, el overlay se creará más tarde en iniciarTourDesdeJSON
   }
 
   // Inject Custom Styles for Shepherd Buttons
@@ -156,65 +177,67 @@ async function init() {
 
           const workflowData = savedState.workflow.data || savedState.workflow;
           const allNodes = (workflowData.drawflow?.nodes || []).sort((a, b) => a.id - b.id);
+          const currentNode = allNodes[savedState.currentStepIndex];
+          const expectedUrl = currentNode?.data?.url || null;
 
-          // ── VALIDACIÓN PERSISTENTE (cross-reload) ─────────────────────
-          // Si hay un paso pendiente de validar (porque la página navegó antes
-          // de que pudiéramos comprobar el 'expected'), lo validamos ahora.
-          if (savedState.pendingValidationIdx != null) {
-            const pIdx = savedState.pendingValidationIdx;
-            const pendingNode = allNodes[pIdx] || null;
+          // ── VALIDACIÓN DE URL ─────────────────────────────────────────
+          // Si la URL actual NO coincide con la URL esperada para el paso guardado
+          // Y NO es una navegación programada (isExpectedNavigation), el tour
+          // quedó huérfano (ej: el usuario cerró y volvió a otra página). Lo limpiamos.
+          const esNavegacionEsperada = savedState.isExpectedNavigation === true;
+          const urlCoincide = !expectedUrl || urlsMatch(expectedUrl, window.location.href);
 
-            if (pendingNode?.data?.expected) {
-              console.log(`🔎 [Tour] Validando resultado del paso ${pIdx} tras recarga...`);
-              const isValid = checkExpectedState(pendingNode.data.expected);
+          if (!urlCoincide && !esNavegacionEsperada) {
+            console.warn('⚠️ [Tour] URL no coincide con el paso guardado. Limpiando tour huérfano.');
+            await clearTourState();
+            if (overlay) { overlay.remove(); overlay = null; }
+            // Continuar con la carga normal de la página
+          } else {
+            // ── URL coincide o es navegación esperada: reanudar tour ──────
+            if (savedState.pendingValidationIdx != null) {
+              const pIdx = savedState.pendingValidationIdx;
+              const pendingNode = allNodes[pIdx] || null;
 
-              if (!isValid) {
-                // El expected falló. Necesitamos volver al PRIMER PASO de la
-                // página del formulario (la URL del paso con 'expected'),
-                // no al primer paso de la URL actual (que puede ser distinta).
-                const pendingStepUrl = pendingNode.data?.url || null;
+              if (pendingNode?.data?.expected) {
+                console.log(`🔎 [Tour] Validando resultado del paso ${pIdx} tras recarga...`);
+                const isValid = checkExpectedState(pendingNode.data.expected);
 
-                let revertIdx = pIdx; // fallback: el propio paso con 'expected'
-                if (pendingStepUrl) {
-                  const firstForPendingUrl = allNodes.findIndex(
-                    n => n.data?.url && urlsMatch(n.data.url, pendingStepUrl)
-                  );
-                  if (firstForPendingUrl !== -1) revertIdx = firstForPendingUrl;
-                }
-
-                console.warn(`⚠️ [Tour] Validación FALLÓ. Revirtiendo al paso ${revertIdx} (primer paso de la URL del formulario).`);
-                await saveTourState(savedState.workflow, revertIdx, false, null);
-
-                const yaSomosEnLaURL = pendingStepUrl && urlsMatch(pendingStepUrl, window.location.href);
-
-                if (!yaSomosEnLaURL && pendingStepUrl) {
-                  // La navegación ya ocurrió. Mostramos el error y navegamos
-                  // directamente a la URL del formulario (más fiable que history.back()).
-                  // En la siguiente carga, init() reanuda desde revertIdx.
-                  await handleError(pendingNode);
-                  window.location.href = pendingStepUrl;
+                if (!isValid) {
+                  const pendingStepUrl = pendingNode.data?.url || null;
+                  let revertIdx = pIdx;
+                  if (pendingStepUrl) {
+                    const firstForPendingUrl = allNodes.findIndex(
+                      n => n.data?.url && urlsMatch(n.data.url, pendingStepUrl)
+                    );
+                    if (firstForPendingUrl !== -1) revertIdx = firstForPendingUrl;
+                  }
+                  console.warn(`⚠️ [Tour] Validación FALLÓ. Revirtiendo al paso ${revertIdx}.`);
+                  await saveTourState(savedState.workflow, revertIdx, false, null);
+                  const yaSomosEnLaURL = pendingStepUrl && urlsMatch(pendingStepUrl, window.location.href);
+                  if (!yaSomosEnLaURL && pendingStepUrl) {
+                    isTourNavigation = true; // proteger beforeunload
+                    await handleError(pendingNode);
+                    window.location.href = pendingStepUrl;
+                  } else {
+                    iniciarTourDesdeJSON(workflowData, revertIdx);
+                    setTimeout(async () => { await handleError(pendingNode); }, 800);
+                  }
+                  tourResumed = true;
                 } else {
-                  // Seguimos en la misma página: reiniciamos el tour desde revertIdx.
-                  iniciarTourDesdeJSON(workflowData, revertIdx);
-                  setTimeout(async () => { await handleError(pendingNode); }, 800);
+                  console.log("✅ [Tour] Validación cross-reload exitosa. Continuando en paso", savedState.currentStepIndex);
+                  await saveTourState(savedState.workflow, savedState.currentStepIndex, savedState.isExpectedNavigation, null);
+                  iniciarTourDesdeJSON(workflowData, savedState.currentStepIndex);
+                  tourResumed = true;
                 }
-                tourResumed = true;
               } else {
-                console.log("✅ [Tour] Validación cross-reload exitosa. Continuando en paso", savedState.currentStepIndex);
-                // Limpiar solo el flag de pendiente
                 await saveTourState(savedState.workflow, savedState.currentStepIndex, savedState.isExpectedNavigation, null);
                 iniciarTourDesdeJSON(workflowData, savedState.currentStepIndex);
                 tourResumed = true;
               }
             } else {
-              // No hay expected que validar, limpiar flag y continuar
-              await saveTourState(savedState.workflow, savedState.currentStepIndex, savedState.isExpectedNavigation, null);
               iniciarTourDesdeJSON(workflowData, savedState.currentStepIndex);
               tourResumed = true;
             }
-          } else {
-            iniciarTourDesdeJSON(workflowData, savedState.currentStepIndex);
-            tourResumed = true;
           }
           // ──────────────────────────────────────────────────────────────
         }
@@ -400,6 +423,13 @@ function mostrarMensajeSinGuias() {
 
 // Mostrar el menú de selección (Grid Grande)
 function crearOverlayTutoriales(workflows) {
+  // Crear el overlay oscuro de fondo ahora que sabemos que hay tours
+  if (overlay === null) {
+    overlay = document.createElement('div');
+    overlay.id = 'overlay-extension';
+    document.body.appendChild(overlay);
+  }
+
   menuOverlay = document.createElement('div');
   menuOverlay.id = 'menu-tutoriales-overlay';
   menuOverlay.style.cssText = `
@@ -527,6 +557,11 @@ function cerrarMenu() {
       if (menuOverlay) {
         menuOverlay.remove();
         menuOverlay = null;
+      }
+      // Eliminar también el overlay oscuro de fondo
+      if (overlay) {
+        overlay.remove();
+        overlay = null;
       }
     }, 300);
   }
@@ -788,6 +823,13 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
   }
 
   if (tour) tour.complete();
+
+  // Asegurar que el overlay oscuro existe (puede que no se haya creado si el tour fue reanudado)
+  if (overlay === null) {
+    overlay = document.createElement('div');
+    overlay.id = 'overlay-extension';
+    document.body.appendChild(overlay);
+  }
 
   // Ensure nodes are sorted
   const sortedNodes = tourData.drawflow.nodes.sort((a, b) => a.id - b.id);
@@ -1122,7 +1164,7 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
     }
 
     currentTargetElement = null;
-    updateOverlayCutout(null);
+    // No limpiamos el overlay aquí: el recorte se actualizará en el siguiente paso
   });
 
   tour.on('complete', () => {
@@ -1141,34 +1183,11 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
   });
 
   tour.on('cancel', () => {
-    // If canceled manually, clear state?
-    // Usually yes. But if it was canceled programmatically for navigation, NO.
-    // We need a flag.
-    // simpler: If we are navigating, we shouldn't trigger 'cancel' cleanup that deletes state.
-    // We can check if 'active_tour' still has a future step index.
-    // For now, let's assume 'cancel' means USER cancel.
-    // Navigation calls tour.cancel() manually? 
-    // Logic: If navigation happens, we simply don't call clearTourState() here if we want to persist.
-
-    // ADJUSTMENT: We won't clear state on cancel. We only clear on 'complete'. 
-    // If user cancels, they might want to resume optionally?
-    // Standard UX: Cancel = Quit.
-    // But our Navigation logic calls tour.cancel().
-    // We will handle "Quit" button explicitly if we ever add one (Close button on modal).
-    // The "X" button triggers 'cancel'.
-
-    // For now, let's NOT clear state on cancel automatically unless we verify intent.
-    // Or we clear it ONLY if it wasn't a navigation event.
-    // Hard to distinguish without a global flag.
-
     window.removeEventListener('scroll', handleScrollOrResize, true);
     window.removeEventListener('resize', handleScrollOrResize, true);
     currentTargetElement = null;
-    updateOverlayCutout(null);
-
-    // Explicitly check if we should clear state
-    // For now, we leave state. If user reloads, it might prompt to resume. 
-    // We can add a "Quit" button to the resume prompt if needed.
+    // No limpiamos el overlay aquí: si es navegación la página recargará;
+    // si el usuario cancela manualmente el recorte desaparecerá al recargar.
   });
 
   console.log(`✓ Iniciando tutorial: ${tourData.name} desde paso ${initialStepIndex}`);
@@ -1176,6 +1195,9 @@ function iniciarTourDesdeJSON(tourData, initialStepIndex = 0) {
 }
 
 function mostrarMensajeNavegacion(nextUrl) {
+  // Marcar que la navegación es del tour para que beforeunload no limpie el estado
+  isTourNavigation = true;
+
   const msg = document.createElement('div');
   msg.style.cssText = `
         position: fixed; top: 20px; right: 20px;
