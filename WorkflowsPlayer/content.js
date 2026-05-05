@@ -43,18 +43,6 @@ if (document.readyState === 'loading') {
   init();
 }
 
-/**
- * Clear the active tour when the user closes or leaves the tab
- * ONLY if it is NOT a scheduled tour navigation
- */
-window.addEventListener('beforeunload', () => {
-  if (!isTourNavigation) {
-    try {
-      chrome.storage.local.remove(['active_tour']);
-    } catch (e) { /* ignore */ }
-  }
-});
-
 async function init() {
   // Check extension context (avoid orphan script error)
   if (!chrome.runtime || !chrome.runtime.id) {
