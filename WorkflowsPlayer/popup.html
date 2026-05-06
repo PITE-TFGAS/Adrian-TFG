@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
   <meta charset="UTF-8">
   <title>Mis Guías</title>
@@ -10,6 +11,7 @@
       --bg: #f8f9fa;
       --text: #333;
     }
+
     body {
       width: 350px;
       padding: 20px;
@@ -18,6 +20,7 @@
       color: var(--text);
       margin: 0;
     }
+
     .header {
       display: flex;
       align-items: center;
@@ -26,17 +29,26 @@
       padding-bottom: 10px;
       border-bottom: 2px solid #eee;
     }
-    .header h2 { margin: 0; font-size: 20px; color: var(--primary); }
-    
+
+    .header h2 {
+      margin: 0;
+      font-size: 20px;
+      color: var(--primary);
+    }
+
     /* Auth Styles */
     .auth-card {
       background: white;
       padding: 15px;
       border-radius: 12px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
       margin-bottom: 15px;
     }
-    .form-group { margin-bottom: 12px; }
+
+    .form-group {
+      margin-bottom: 12px;
+    }
+
     input {
       width: 100%;
       padding: 10px;
@@ -44,7 +56,12 @@
       border-radius: 8px;
       box-sizing: border-box;
     }
-    .btn-group { display: flex; gap: 8px; }
+
+    .btn-group {
+      display: flex;
+      gap: 8px;
+    }
+
     button {
       flex: 1;
       padding: 10px;
@@ -54,12 +71,35 @@
       font-weight: 600;
       transition: all 0.2s;
     }
-    .btn-primary { background: var(--primary); color: white; }
-    .btn-secondary { background: #eee; color: #666; }
-    .btn-logout { background: #fee2e2; color: #ef4444; width: 100%; margin-top: 10px; }
-    
-    #userInfo { display: none; flex-direction: column; gap: 10px; }
-    .user-email { font-size: 13px; color: #666; font-weight: bold; }
+
+    .btn-primary {
+      background: var(--primary);
+      color: white;
+    }
+
+    .btn-secondary {
+      background: #eee;
+      color: #666;
+    }
+
+    .btn-logout {
+      background: #fee2e2;
+      color: #ef4444;
+      width: 100%;
+      margin-top: 10px;
+    }
+
+    #userInfo {
+      display: none;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .user-email {
+      font-size: 13px;
+      color: #666;
+      font-weight: bold;
+    }
 
     /* Workflow List */
     #status {
@@ -70,13 +110,34 @@
       font-weight: 500;
       display: none;
     }
-    .success { background: #e8f5e9; color: #2e7d32; border: 1px solid #c8e6c9; }
-    .error { background: #ffebee; color: #c62828; border: 1px solid #ffcdd2; }
-    .count { font-size: 24px; font-weight: 800; display: block; margin-bottom: 5px; }
-    
-    .message { font-size: 12px; margin-top: 8px; text-align: center; }
+
+    .success {
+      background: #e8f5e9;
+      color: #2e7d32;
+      border: 1px solid #c8e6c9;
+    }
+
+    .error {
+      background: #ffebee;
+      color: #c62828;
+      border: 1px solid #ffcdd2;
+    }
+
+    .count {
+      font-size: 24px;
+      font-weight: 800;
+      display: block;
+      margin-bottom: 5px;
+    }
+
+    .message {
+      font-size: 12px;
+      margin-top: 8px;
+      text-align: center;
+    }
   </style>
 </head>
+
 <body>
   <div class="header">
     <span style="font-size: 24px;">🧭</span>
@@ -104,7 +165,7 @@
       <span class="user-email" id="userEmail"></span>
       <button id="btnLogout" class="btn-logout" style="width: auto; margin: 0; padding: 5px 10px;">Salir</button>
     </div>
-    
+
     <div id="status">
       <!-- Sync status injected here -->
     </div>
@@ -119,4 +180,5 @@
   <script src="auth.js"></script>
   <script src="popup.js"></script>
 </body>
+
 </html>
