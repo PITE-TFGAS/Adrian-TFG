@@ -1,165 +1,397 @@
-// DOM Elements
-const btnStart = document.getElementById('btn-start');
-const btnStop = document.getElementById('btn-stop');
-const btnSave = document.getElementById('btn-save');
-const btnClear = document.getElementById('btn-clear');
-const nameInput = document.getElementById('workflow-name');
-const nameContainer = document.getElementById('name-container');
-const recordingStatus = document.getElementById('recording-status');
-const stepsCount = document.getElementById('steps-count');
-const authStatus = document.getElementById('auth-status');
+// recorder-popup.js - Lógica del panel de control
 
-// Initialize State
+let isRecording = false;
+let currentWorkflow = null;
+
+// Elementos del DOM
+const workflowNameInput = document.getElementById('workflowName');
+const workflowDescriptionInput = document.getElementById('workflowDescription');
+const btnStart = document.getElementById('btnStart');
+const btnStop = document.getElementById('btnStop');
+const btnUpload = document.getElementById('btnUpload'); // Replaced btnDownload
+const btnClear = document.getElementById('btnClear');
+
+// Auth DOM Elements
+const loginForm = document.getElementById('loginForm');
+const userInfo = document.getElementById('userInfo');
+const userEmailSpan = document.getElementById('userEmail');
+const btnLogin = document.getElementById('btnLogin');
+const btnRegister = document.getElementById('btnRegister');
+const btnLogout = document.getElementById('btnLogout');
+const emailInput = document.getElementById('email');
+const passwordInput = document.getElementById('password');
+const authMessage = document.getElementById('authMessage');
+const statusIdle = document.getElementById('statusIdle');
+const statusRecording = document.getElementById('statusRecording');
+const stepsCount = document.getElementById('stepsCount');
+const countNumber = document.getElementById('countNumber');
+const urlDisplay = document.getElementById('urlDisplay');
+const currentUrl = document.getElementById('currentUrl');
+const tagsGroup = document.getElementById('tagsGroup');
+const tagsInput = document.getElementById('tagsInput');
+const tagsContainer = document.getElementById('tagsContainer');
+
+// Tags management
+let workflowTags = [];
+
+// Inicializar: verificar si hay una grabación activa
 chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-  const activeTab = tabs[0];
-  if (!activeTab) return;
+  if (tabs[0]) {
+    chrome.tabs.sendMessage(tabs[0].id, { action: 'getRecordingState' }, (response) => {
+      if (chrome.runtime.lastError) {
+        // El content script aún no está cargado, está bien
+        return;
+      }
 
-  chrome.tabs.sendMessage(activeTab.id, { action: 'getRecordingState' }, (response) => {
-    if (chrome.runtime.lastError) return;
-    if (response && response.isRecording) {
-      setUIState('recording', response.workflow.steps.length);
+      if (response && response.isRecording) {
+        activarModoGrabacion(response.workflow);
+      }
+    });
+  }
+});
+
+// Iniciar grabación
+btnStart.addEventListener('click', async () => {
+  const workflowName = workflowNameInput.value.trim();
+
+  if (!workflowName) {
+    alert('⚠️ Por favor, introduce un nombre para el workflow');
+    workflowNameInput.focus();
+    return;
+  }
+
+  const workflowDescription = workflowDescriptionInput.value.trim();
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  if (!tab) {
+    alert('⚠️ No se puede obtener la pestaña activa');
+    return;
+  }
+
+  const workflow = {
+    name: workflowName,
+    description: workflowDescription,
+    url: tab.url,
+    steps: [],
+    createdAt: new Date().toISOString()
+  };
+
+  chrome.tabs.sendMessage(tab.id, {
+    action: 'startRecording',
+    workflow: workflow
+  }, (response) => {
+    if (chrome.runtime.lastError) {
+      alert('⚠️ Error al iniciar la grabación. Recarga la página e intenta de nuevo.');
+      return;
+    }
+
+    if (response && response.success) {
+      activarModoGrabacion(workflow);
     }
   });
 });
 
-// Update Auth Status
-AuthManager.getCurrentUser().then(user => {
-  if (user) {
-    authStatus.textContent = `Sesión iniciada como: ${user.email}`;
+// Detener grabación
+btnStop.addEventListener('click', async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+
+  chrome.tabs.sendMessage(tab.id, { action: 'stopRecording' }, (response) => {
+    if (response && response.workflow) {
+      desactivarModoGrabacion(response.workflow);
+    }
+  });
+});
+
+// Tag Management Functions
+function addTag(tagName) {
+  const normalized = tagName.trim().toLowerCase().replace(/\s+/g, '-');
+  if (!normalized || workflowTags.includes(normalized)) return;
+
+  workflowTags.push(normalized);
+  renderTags();
+  tagsInput.value = '';
+}
+
+function removeTag(tagName) {
+  workflowTags = workflowTags.filter(t => t !== tagName);
+  renderTags();
+}
+
+function renderTags() {
+  tagsContainer.innerHTML = '';
+
+  workflowTags.forEach(tag => {
+    const chip = document.createElement('span');
+    chip.className = 'tag-chip';
+    chip.innerHTML = `
+      <span>${tag}</span>
+      <span class="remove-tag" data-tag="${tag}">×</span>
+    `;
+
+    chip.querySelector('.remove-tag').addEventListener('click', () => {
+      removeTag(tag);
+    });
+
+    tagsContainer.appendChild(chip);
+  });
+}
+
+// Tags input event listener
+tagsInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    addTag(tagsInput.value);
+  }
+});
+
+// Auth Logic
+function updateAuthUI(session) {
+  if (session) {
+    loginForm.style.display = 'none';
+    userInfo.style.display = 'flex';
+    userEmailSpan.textContent = session.user.email;
   } else {
-    authStatus.innerHTML = '<span style="color:#d32f2f">⚠️ Debes iniciar sesión en el Player primero</span>';
-    btnStart.disabled = true;
+    loginForm.style.display = 'block';
+    userInfo.style.display = 'none';
+    userEmailSpan.textContent = '';
   }
+}
+
+AuthManager.onAuthStateChange((event, session) => {
+  updateAuthUI(session);
 });
 
-// Event Listeners
-btnStart.addEventListener('click', () => {
-  const name = nameInput.value.trim();
-  if (!name) {
-    alert('Por favor, introduce un nombre para el tutorial');
-    return;
-  }
-
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    const activeTab = tabs[0];
-    const workflow = {
-      name: name,
-      url: activeTab.url,
-      steps: []
-    };
-
-    chrome.tabs.sendMessage(activeTab.id, { action: 'startRecording', workflow }, (response) => {
-      if (response && response.success) {
-        setUIState('recording', 0);
-        window.close(); // Close popup to allow interaction
-      }
-    });
-  });
+AuthManager.getCurrentUser().then(user => {
+  if (user) updateAuthUI({ user });
 });
 
-btnStop.addEventListener('click', () => {
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    chrome.tabs.sendMessage(tabs[0].id, { action: 'stopRecording' }, (response) => {
-      if (response && response.workflow) {
-        setUIState('finished', response.workflow.steps.length);
-      }
-    });
-  });
+btnLogin.addEventListener('click', async () => {
+  authMessage.textContent = 'Iniciando...';
+  const { error } = await AuthManager.login(emailInput.value, passwordInput.value);
+  if (error) authMessage.textContent = error.message;
+  else authMessage.textContent = '';
 });
 
-btnSave.addEventListener('click', async () => {
+btnRegister.addEventListener('click', async () => {
+  authMessage.textContent = 'Registrando...';
+  const { error } = await AuthManager.register(emailInput.value, passwordInput.value);
+  if (error) authMessage.textContent = error.message;
+  else authMessage.textContent = 'Registro enviado. Verifica tu correo.';
+});
+
+btnLogout.addEventListener('click', async () => {
+  await AuthManager.logout();
+  authMessage.textContent = '';
+});
+
+// Guardar en la Nube
+btnUpload.addEventListener('click', async () => {
   const user = await AuthManager.getCurrentUser();
   if (!user) {
-    alert('Debes iniciar sesión en la extensión Player para poder subir tutoriales.');
+    alert('⚠️ Debes iniciar sesión para guardar.');
     return;
   }
 
-  chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-    chrome.tabs.sendMessage(tabs[0].id, { action: 'stopRecording' }, async (response) => {
-      const workflow = response.workflow;
-      if (!workflow || workflow.steps.length === 0) {
-        alert('No hay pasos grabados para subir.');
-        return;
-      }
+  if (!currentWorkflow || !currentWorkflow.steps || currentWorkflow.steps.length === 0) {
+    alert('⚠️ No hay pasos grabados.');
+    return;
+  }
 
-      btnSave.textContent = 'Subiendo...';
-      btnSave.disabled = true;
+  const output = {
+    name: currentWorkflow.name,
+    description: currentWorkflow.description,
+    url: currentWorkflow.url,
+    createdAt: currentWorkflow.createdAt,
+    drawflow: { nodes: [] }
+  };
 
-      try {
-        const drawflowData = {
-          drawflow: {
-            Home: {
-              data: {}
-            }
-          }
-        };
-
-        workflow.steps.forEach((step, index) => {
-          drawflowData.drawflow.Home.data[index + 1] = {
-            id: index + 1,
-            name: 'step',
-            data: {
-              selector: step.selector,
-              description: step.description,
-              url: step.url,
-              stepType: step.stepType,
-              expected: step.expected
-            }
-          };
-        });
-
-        const { error } = await supabaseClient.from('workflows').insert({
-          name: workflow.name,
-          url: workflow.url,
-          user_id: user.id,
-          data: drawflowData
-        });
-
-        if (error) throw error;
-
-        alert('✅ Tutorial subido con éxito a la nube');
-        chrome.tabs.sendMessage(tabs[0].id, { action: 'clearRecording' });
-        setUIState('idle');
-      } catch (err) {
-        console.error(err);
-        alert('❌ Error al subir: ' + err.message);
-        btnSave.textContent = 'Subir a la nube';
-        btnSave.disabled = false;
+  currentWorkflow.steps.forEach((step, index) => {
+    output.drawflow.nodes.push({
+      id: index + 1,
+      label: "event-click",
+      position: step.position,
+      data: {
+        selector: step.selector,
+        description: step.description,
+        url: step.url,
+        tooltipPosition: step.tooltipPosition || "bottom",
+        stepType: step.stepType || "click",
+        expected: step.expected || undefined
       }
     });
   });
+
+  const originalText = btnUpload.textContent;
+  btnUpload.textContent = '⏳ Guardando...';
+  btnUpload.disabled = true;
+
+  console.log("☁️ [Recorder] Iniciando subida...");
+  console.log("👤 [Recorder] User ID:", user.id);
+  console.log("📦 [Recorder] Payload Size:", JSON.stringify(output).length);
+
+  try {
+    // Prepare tags: always include "review needed" + user tags
+    const finalTags = ['review needed', ...workflowTags];
+
+    const { error } = await supabaseClient
+      .from('workflows')
+      .insert([{
+        name: currentWorkflow.name,
+        url: currentWorkflow.url,
+        data: output,
+        user_id: user.id,
+        tags: finalTags
+      }]);
+
+    if (error) throw error;
+
+    btnUpload.textContent = '✓ Guardado!';
+    btnUpload.style.background = '#66bb6a';
+
+    // Limpiar estado de grabación tras guardar
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]) {
+        chrome.tabs.sendMessage(tabs[0].id, { action: 'clearRecording' });
+      }
+    });
+
+    // Resetear UI del popup
+    setTimeout(() => {
+      currentWorkflow = null;
+      workflowTags = [];
+      renderTags();
+      btnUpload.style.display = 'none';
+      btnClear.style.display = 'none';
+      tagsGroup.style.display = 'none';
+      btnStart.style.display = 'block';
+      workflowNameInput.disabled = false;
+      workflowNameInput.value = '';
+      workflowDescriptionInput.disabled = false;
+      workflowDescriptionInput.value = '';
+      btnUpload.textContent = originalText;
+      btnUpload.style.background = '';
+      btnUpload.disabled = false;
+      stepsCount.style.display = 'none';
+      urlDisplay.style.display = 'none';
+      statusIdle.style.display = 'block';
+      statusRecording.style.display = 'none';
+      statusIdle.innerHTML = '<strong>⏸️ Listo para grabar</strong><br>Introduce los datos y presiona "Iniciar Grabación"';
+      statusIdle.style.background = '#e3f2fd';
+      statusIdle.style.borderColor = '#2196F3';
+      statusIdle.style.color = '#1565c0';
+    }, 2000);
+
+  } catch (err) {
+    console.error(err);
+    alert('Error al guardar: ' + err.message);
+    btnUpload.textContent = '❌ Error';
+    btnUpload.disabled = false;
+  }
 });
 
+// Storage function removed (using Cloud)
+
+// Nueva grabación
 btnClear.addEventListener('click', () => {
-  if (confirm('¿Estás seguro de que quieres borrar la grabación actual?')) {
+  if (confirm('¿Estás seguro de que quieres comenzar una nueva grabación? Los datos actuales se perderán.')) {
+    currentWorkflow = null;
+    workflowNameInput.value = '';
+    workflowNameInput.disabled = false;
+    workflowDescriptionInput.value = '';
+    workflowDescriptionInput.disabled = false;
+    btnStart.style.display = 'block';
+    btnStop.style.display = 'none';
+    btnUpload.style.display = 'none';
+    btnClear.style.display = 'none';
+    stepsCount.style.display = 'none';
+    urlDisplay.style.display = 'none';
+    statusIdle.style.display = 'block';
+    statusRecording.style.display = 'none';
+    statusIdle.innerHTML = '<strong>⏸️ Listo para grabar</strong><br>Introduce los datos y presiona "Iniciar Grabación"';
+    statusIdle.style.background = '#e3f2fd';
+    statusIdle.style.borderColor = '#2196F3';
+    statusIdle.style.color = '#1565c0';
+
+    // Limpiar en el content script también
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      chrome.tabs.sendMessage(tabs[0].id, { action: 'clearRecording' }, () => {
-        setUIState('idle');
-      });
+      if (tabs[0]) {
+        chrome.tabs.sendMessage(tabs[0].id, { action: 'clearRecording' });
+      }
     });
   }
 });
 
-function setUIState(state, count = 0) {
-  if (state === 'recording') {
-    btnStart.style.display = 'none';
-    nameContainer.style.display = 'none';
-    btnStop.style.display = 'flex';
-    btnSave.style.display = 'none';
-    recordingStatus.style.display = 'block';
-    stepsCount.textContent = count;
-  } else if (state === 'finished') {
-    btnStart.style.display = 'none';
-    nameContainer.style.display = 'none';
-    btnStop.style.display = 'none';
-    btnSave.style.display = 'flex';
-    recordingStatus.style.display = 'block';
-    stepsCount.textContent = count;
-  } else {
-    btnStart.style.display = 'flex';
-    nameContainer.style.display = 'block';
-    btnStop.style.display = 'none';
-    btnSave.style.display = 'none';
-    recordingStatus.style.display = 'none';
+// Funciones auxiliares
+function activarModoGrabacion(workflow) {
+  isRecording = true;
+  currentWorkflow = workflow;
+
+  workflowNameInput.disabled = true;
+  workflowDescriptionInput.disabled = true;
+  btnStart.style.display = 'none';
+  btnStop.style.display = 'block';
+  btnUpload.style.display = 'none';
+  btnClear.style.display = 'none';
+  statusIdle.style.display = 'none';
+  statusRecording.style.display = 'block';
+  stepsCount.style.display = 'block';
+  urlDisplay.style.display = 'block';
+
+  currentUrl.textContent = workflow.url;
+  actualizarContador(workflow.steps.length);
+
+  // Actualizar contador periódicamente
+  const interval = setInterval(() => {
+    if (!isRecording) {
+      clearInterval(interval);
+      return;
+    }
+
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      if (tabs[0]) {
+        chrome.tabs.sendMessage(tabs[0].id, { action: 'getStepsCount' }, (response) => {
+          if (response && response.count !== undefined) {
+            actualizarContador(response.count);
+          }
+        });
+      }
+    });
+  }, 500);
+}
+
+function desactivarModoGrabacion(workflow) {
+  isRecording = false;
+  currentWorkflow = workflow;
+
+  statusRecording.style.display = 'none';
+  statusIdle.style.display = 'block';
+  btnStop.style.display = 'none';
+  btnUpload.style.display = 'block';
+  btnClear.style.display = 'block';
+  tagsGroup.style.display = 'block';
+  workflowNameInput.disabled = true;
+  workflowDescriptionInput.disabled = true;
+
+  // Reset tags for new workflow
+  workflowTags = [];
+  renderTags();
+
+  // Actualizar contador
+  if (workflow.steps && workflow.steps.length > 0) {
+    countNumber.textContent = workflow.steps.length;
   }
+  statusIdle.innerHTML = `
+    <strong>✓ Grabación completada</strong><br>
+    ${workflow.steps.length} paso(s) registrado(s)
+  `;
+  statusIdle.style.background = '#e8f5e9';
+  statusIdle.style.borderColor = '#4CAF50';
+  statusIdle.style.color = '#2e7d32';
+
+  actualizarContador(workflow.steps.length);
+}
+
+function actualizarContador(count) {
+  countNumber.textContent = count;
 }
