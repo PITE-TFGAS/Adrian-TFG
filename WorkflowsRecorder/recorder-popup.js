@@ -1,9 +1,9 @@
-// recorder-popup.js - Lógica del panel de control
+// recorder-popup.js - Control panel logic
 
 let isRecording = false;
 let currentWorkflow = null;
 
-// Elementos del DOM
+// DOM Elements
 const workflowNameInput = document.getElementById('workflowName');
 const workflowDescriptionInput = document.getElementById('workflowDescription');
 const btnStart = document.getElementById('btnStart');
@@ -34,23 +34,23 @@ const tagsContainer = document.getElementById('tagsContainer');
 // Tags management
 let workflowTags = [];
 
-// Inicializar: verificar si hay una grabación activa
+// Initialize: check if there is an active recording
 chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
   if (tabs[0]) {
     chrome.tabs.sendMessage(tabs[0].id, { action: 'getRecordingState' }, (response) => {
       if (chrome.runtime.lastError) {
-        // El content script aún no está cargado, está bien
+        // Content script not loaded yet, that's fine
         return;
       }
 
       if (response && response.isRecording) {
-        activarModoGrabacion(response.workflow);
+        activateRecordingMode(response.workflow);
       }
     });
   }
 });
 
-// Iniciar grabación
+// Start recording
 btnStart.addEventListener('click', async () => {
   const workflowName = workflowNameInput.value.trim();
 
@@ -87,18 +87,18 @@ btnStart.addEventListener('click', async () => {
     }
 
     if (response && response.success) {
-      activarModoGrabacion(workflow);
+      activateRecordingMode(workflow);
     }
   });
 });
 
-// Detener grabación
+// Stop recording
 btnStop.addEventListener('click', async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
   chrome.tabs.sendMessage(tab.id, { action: 'stopRecording' }, (response) => {
     if (response && response.workflow) {
-      desactivarModoGrabacion(response.workflow);
+      deactivateRecordingMode(response.workflow);
     }
   });
 });
@@ -185,7 +185,7 @@ btnLogout.addEventListener('click', async () => {
   authMessage.textContent = '';
 });
 
-// Guardar en la Nube
+// Upload to Cloud
 btnUpload.addEventListener('click', async () => {
   const user = await AuthManager.getCurrentUser();
   if (!user) {
@@ -226,7 +226,7 @@ btnUpload.addEventListener('click', async () => {
   btnUpload.textContent = '⏳ Guardando...';
   btnUpload.disabled = true;
 
-  console.log("☁️ [Recorder] Iniciando subida...");
+  console.log("☁️ [Recorder] Starting upload...");
   console.log("👤 [Recorder] User ID:", user.id);
   console.log("📦 [Recorder] Payload Size:", JSON.stringify(output).length);
 
@@ -249,14 +249,14 @@ btnUpload.addEventListener('click', async () => {
     btnUpload.textContent = '✓ Guardado!';
     btnUpload.style.background = '#66bb6a';
 
-    // Limpiar estado de grabación tras guardar
+    // Clear recording state after saving
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]) {
         chrome.tabs.sendMessage(tabs[0].id, { action: 'clearRecording' });
       }
     });
 
-    // Resetear UI del popup
+    // Reset popup UI
     setTimeout(() => {
       currentWorkflow = null;
       workflowTags = [];
@@ -292,7 +292,7 @@ btnUpload.addEventListener('click', async () => {
 
 // Storage function removed (using Cloud)
 
-// Nueva grabación
+// New recording
 btnClear.addEventListener('click', () => {
   if (confirm('¿Estás seguro de que quieres comenzar una nueva grabación? Los datos actuales se perderán.')) {
     currentWorkflow = null;
@@ -313,7 +313,7 @@ btnClear.addEventListener('click', () => {
     statusIdle.style.borderColor = '#2196F3';
     statusIdle.style.color = '#1565c0';
 
-    // Limpiar en el content script también
+    // Clear in content script as well
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]) {
         chrome.tabs.sendMessage(tabs[0].id, { action: 'clearRecording' });
@@ -322,8 +322,8 @@ btnClear.addEventListener('click', () => {
   }
 });
 
-// Funciones auxiliares
-function activarModoGrabacion(workflow) {
+// Helper functions
+function activateRecordingMode(workflow) {
   isRecording = true;
   currentWorkflow = workflow;
 
@@ -339,9 +339,9 @@ function activarModoGrabacion(workflow) {
   urlDisplay.style.display = 'block';
 
   currentUrl.textContent = workflow.url;
-  actualizarContador(workflow.steps.length);
+  updateCounter(workflow.steps.length);
 
-  // Actualizar contador periódicamente
+  // Periodically update counter
   const interval = setInterval(() => {
     if (!isRecording) {
       clearInterval(interval);
@@ -352,7 +352,7 @@ function activarModoGrabacion(workflow) {
       if (tabs[0]) {
         chrome.tabs.sendMessage(tabs[0].id, { action: 'getStepsCount' }, (response) => {
           if (response && response.count !== undefined) {
-            actualizarContador(response.count);
+            updateCounter(response.count);
           }
         });
       }
@@ -360,7 +360,7 @@ function activarModoGrabacion(workflow) {
   }, 500);
 }
 
-function desactivarModoGrabacion(workflow) {
+function deactivateRecordingMode(workflow) {
   isRecording = false;
   currentWorkflow = workflow;
 
@@ -377,7 +377,7 @@ function desactivarModoGrabacion(workflow) {
   workflowTags = [];
   renderTags();
 
-  // Actualizar contador
+  // Update counter
   if (workflow.steps && workflow.steps.length > 0) {
     countNumber.textContent = workflow.steps.length;
   }
@@ -389,9 +389,9 @@ function desactivarModoGrabacion(workflow) {
   statusIdle.style.borderColor = '#4CAF50';
   statusIdle.style.color = '#2e7d32';
 
-  actualizarContador(workflow.steps.length);
+  updateCounter(workflow.steps.length);
 }
 
-function actualizarContador(count) {
+function updateCounter(count) {
   countNumber.textContent = count;
 }

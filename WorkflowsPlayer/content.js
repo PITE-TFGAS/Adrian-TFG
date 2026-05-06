@@ -1090,6 +1090,10 @@ function startTourFromJSON(tourData, initialStepIndex = 0) {
     currentTargetElement = null;
 
     updateOverlayCutout(null);
+    if (overlay) {
+      overlay.remove();
+      overlay = null;
+    }
     clearTourState();
     showFinalMessage(tourData.name || "");
   });
