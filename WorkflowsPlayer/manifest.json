@@ -1,4 +1,4 @@
-{
+﻿{
   "manifest_version": 3,
   "name": "Tour Guiado con Shepherd",
   "version": "1.0",
@@ -9,14 +9,14 @@
     "storage"
   ],
   "action": {
-    "default_popup": "popup.html"
+    "default_popup": "popup/popup.html"
   },
   "web_accessible_resources": [
     {
       "resources": [
         "*.json",
-        "shepherd.min.js",
-        "shepherd.css"
+        "libs/shepherd.min.js",
+        "styles/shepherd.css"
       ],
       "matches": [
         "<all_urls>"
@@ -29,14 +29,17 @@
         "<all_urls>"
       ],
       "js": [
-        "supabase.min.js",
-        "supabase-client.js",
-        "shepherd.min.js",
-        "content.js"
+        "auth/auth.js",
+        "auth/supabase-client.js",
+        "storage/storage-utils.js",
+        "libs/supabase.min.js",
+        "libs/shepherd.min.js",
+        "content/validation/expected-state.js",
+        "content/content.js"
       ],
       "css": [
-        "overlay.css",
-        "shepherd.css"
+        "styles/overlay.css",
+        "styles/shepherd.css"
       ],
       "run_at": "document_end"
     }

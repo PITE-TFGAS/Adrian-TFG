@@ -1,4 +1,4 @@
-{
+﻿{
   "manifest_version": 3,
   "name": "Grabador de Workflows",
   "version": "1.0",
@@ -9,7 +9,7 @@
     "storage"
   ],
   "action": {
-    "default_popup": "recorder-popup.html"
+    "default_popup": "popup/popup.html"
   },
   "content_scripts": [
     {
@@ -17,10 +17,12 @@
         "<all_urls>"
       ],
       "js": [
-        "recorder-content.js"
+        "content/utils/dom-analyzer.js",
+        "content/dom/selector-engine.js",
+        "content/content.js"
       ],
       "css": [
-        "recorder-styles.css"
+        "content/content.css"
       ],
       "run_at": "document_idle"
     }
@@ -28,7 +30,7 @@
   "web_accessible_resources": [
     {
       "resources": [
-        "recorder-styles.css"
+        "content/content.css"
       ],
       "matches": [
         "<all_urls>"

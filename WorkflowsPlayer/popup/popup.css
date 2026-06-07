@@ -1,0 +1,164 @@
+﻿/*
+ * popup.css - WorkflowsPlayer popup styles.
+ */
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  width: 380px;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+  padding: 20px;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.header h2 {
+  font-size: 22px;
+  color: #1565c0;
+}
+
+.auth-card {
+  background: white;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.07);
+  margin-bottom: 15px;
+}
+
+.auth-card .form-group {
+  margin-bottom: 12px;
+}
+
+.auth-card input {
+  width: 100%;
+  padding: 10px;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.auth-card input:focus {
+  border-color: #2196F3;
+}
+
+.btn-group {
+  display: flex;
+  gap: 10px;
+  margin-top: 5px;
+}
+
+.btn-primary {
+  flex: 1;
+  padding: 10px;
+  background: #2196F3;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-primary:hover {
+  background: #1976D2;
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  flex: 1;
+  padding: 10px;
+  background: white;
+  color: #2196F3;
+  border: 2px solid #2196F3;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  background: #f5f5f5;
+}
+
+.btn-logout {
+  background: #607d8b;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.btn-logout:hover {
+  background: #546e7a;
+}
+
+#status {
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 14px;
+  margin-top: 12px;
+  text-align: center;
+  display: none;
+}
+
+#status .count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #4CAF50;
+  color: white;
+  border-radius: 50%;
+  width: 24px;
+  height: 24px;
+  font-size: 14px;
+  font-weight: bold;
+  margin-right: 6px;
+}
+
+#status.success {
+  background: #e8f5e9;
+  color: #2e7d32;
+  border: 1px solid #4CAF50;
+}
+
+#status.error {
+  background: #ffebee;
+  color: #c62828;
+  border: 1px solid #e53935;
+}
+
+#userInfo {
+  flex-direction: column;
+  gap: 5px;
+}
+
+#userEmail {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
+}
+
+.message {
+  color: #d32f2f;
+  font-size: 12px;
+  margin-top: 5px;
+  min-height: 18px;
+}

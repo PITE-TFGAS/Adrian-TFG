@@ -1,17 +1,24 @@
-// recorder-popup.js - Control panel logic
+﻿/**
+ * popup.js - Recorder popup UI logic (login, recording controls, sync).
+ *
+ * Manages the extension popup interface: authentication, workflow naming,
+ * start/stop recording, tag management, and cloud upload.
+ */
 
+/** @type {boolean} Whether a recording is in progress. */
 let isRecording = false;
+/** @type {Object|null} The current workflow being recorded. */
 let currentWorkflow = null;
 
-// DOM Elements
+/*  ----  DOM element references  ----  */
+
 const workflowNameInput = document.getElementById('workflowName');
 const workflowDescriptionInput = document.getElementById('workflowDescription');
 const btnStart = document.getElementById('btnStart');
 const btnStop = document.getElementById('btnStop');
-const btnUpload = document.getElementById('btnUpload'); // Replaced btnDownload
+const btnUpload = document.getElementById('btnUpload');
 const btnClear = document.getElementById('btnClear');
 
-// Auth DOM Elements
 const loginForm = document.getElementById('loginForm');
 const userInfo = document.getElementById('userInfo');
 const userEmailSpan = document.getElementById('userEmail');
@@ -31,15 +38,17 @@ const tagsGroup = document.getElementById('tagsGroup');
 const tagsInput = document.getElementById('tagsInput');
 const tagsContainer = document.getElementById('tagsContainer');
 
-// Tags management
+/** @type {string[]} Array of tag strings for the current workflow. */
 let workflowTags = [];
 
-// Initialize: check if there is an active recording
+/**
+ * On popup open, queries the content script for current recording state
+ * and restores UI to match (e.g., if already recording).
+ */
 chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
   if (tabs[0]) {
     chrome.tabs.sendMessage(tabs[0].id, { action: 'getRecordingState' }, (response) => {
       if (chrome.runtime.lastError) {
-        // Content script not loaded yet, that's fine
         return;
       }
 
@@ -50,7 +59,12 @@ chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
   }
 });
 
-// Start recording
+/**
+ * Starts a recording session.
+ *
+ * Validates the workflow name, creates the workflow object, and sends
+ * a startRecording message to the content script.
+ */
 btnStart.addEventListener('click', async () => {
   const workflowName = workflowNameInput.value.trim();
 
@@ -92,7 +106,9 @@ btnStart.addEventListener('click', async () => {
   });
 });
 
-// Stop recording
+/**
+ * Stops the active recording session by messaging the content script.
+ */
 btnStop.addEventListener('click', async () => {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
@@ -103,7 +119,13 @@ btnStop.addEventListener('click', async () => {
   });
 });
 
-// Tag Management Functions
+/**
+ * Adds a tag to the workflow.
+ *
+ * Normalizes the tag (lowercase, hyphens) and skips duplicates.
+ *
+ * @param {string} tagName - The tag to add.
+ */
 function addTag(tagName) {
   const normalized = tagName.trim().toLowerCase().replace(/\s+/g, '-');
   if (!normalized || workflowTags.includes(normalized)) return;
@@ -113,11 +135,19 @@ function addTag(tagName) {
   tagsInput.value = '';
 }
 
+/**
+ * Removes a tag from the workflow.
+ *
+ * @param {string} tagName - The tag to remove.
+ */
 function removeTag(tagName) {
   workflowTags = workflowTags.filter(t => t !== tagName);
   renderTags();
 }
 
+/**
+ * Renders all current tags as removable chips in the tags container.
+ */
 function renderTags() {
   tagsContainer.innerHTML = '';
 
@@ -137,7 +167,9 @@ function renderTags() {
   });
 }
 
-// Tags input event listener
+/**
+ * Allows adding a tag by pressing Enter in the tags input field.
+ */
 tagsInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     e.preventDefault();
@@ -145,7 +177,11 @@ tagsInput.addEventListener('keydown', (e) => {
   }
 });
 
-// Auth Logic
+/**
+ * Toggles the authentication UI between login form and user info display.
+ *
+ * @param {Object|null} session - Supabase session object, or null for logged out.
+ */
 function updateAuthUI(session) {
   if (session) {
     loginForm.style.display = 'none';
@@ -166,6 +202,9 @@ AuthManager.getCurrentUser().then(user => {
   if (user) updateAuthUI({ user });
 });
 
+/**
+ * Authenticates the user with email/password on login button click.
+ */
 btnLogin.addEventListener('click', async () => {
   authMessage.textContent = 'Iniciando...';
   const { error } = await AuthManager.login(emailInput.value, passwordInput.value);
@@ -173,6 +212,9 @@ btnLogin.addEventListener('click', async () => {
   else authMessage.textContent = '';
 });
 
+/**
+ * Registers a new user on register button click.
+ */
 btnRegister.addEventListener('click', async () => {
   authMessage.textContent = 'Registrando...';
   const { error } = await AuthManager.register(emailInput.value, passwordInput.value);
@@ -180,12 +222,20 @@ btnRegister.addEventListener('click', async () => {
   else authMessage.textContent = 'Registro enviado. Verifica tu correo.';
 });
 
+/**
+ * Logs out the current user on logout button click.
+ */
 btnLogout.addEventListener('click', async () => {
   await AuthManager.logout();
   authMessage.textContent = '';
 });
 
-// Upload to Cloud
+/**
+ * Uploads the recorded workflow to Supabase.
+ *
+ * Transforms the workflow into the expected drawflow format,
+ * saves it to the 'workflows' table, and resets the UI on success.
+ */
 btnUpload.addEventListener('click', async () => {
   const user = await AuthManager.getCurrentUser();
   if (!user) {
@@ -226,12 +276,11 @@ btnUpload.addEventListener('click', async () => {
   btnUpload.textContent = '⏳ Guardando...';
   btnUpload.disabled = true;
 
-  console.log("☁️ [Recorder] Starting upload...");
-  console.log("👤 [Recorder] User ID:", user.id);
-  console.log("📦 [Recorder] Payload Size:", JSON.stringify(output).length);
+  ;
+  ;
+  ;
 
   try {
-    // Prepare tags: always include "review needed" + user tags
     const finalTags = ['review needed', ...workflowTags];
 
     const { error } = await supabaseClient
@@ -249,14 +298,12 @@ btnUpload.addEventListener('click', async () => {
     btnUpload.textContent = '✓ Guardado!';
     btnUpload.style.background = '#66bb6a';
 
-    // Clear recording state after saving
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]) {
         chrome.tabs.sendMessage(tabs[0].id, { action: 'clearRecording' });
       }
     });
 
-    // Reset popup UI
     setTimeout(() => {
       currentWorkflow = null;
       workflowTags = [];
@@ -283,16 +330,16 @@ btnUpload.addEventListener('click', async () => {
     }, 2000);
 
   } catch (err) {
-    console.error(err);
+    ;
     alert('Error al guardar: ' + err.message);
     btnUpload.textContent = '❌ Error';
     btnUpload.disabled = false;
   }
 });
 
-// Storage function removed (using Cloud)
-
-// New recording
+/**
+ * Clears the current recording and resets the UI to its initial state.
+ */
 btnClear.addEventListener('click', () => {
   if (confirm('¿Estás seguro de que quieres comenzar una nueva grabación? Los datos actuales se perderán.')) {
     currentWorkflow = null;
@@ -313,7 +360,6 @@ btnClear.addEventListener('click', () => {
     statusIdle.style.borderColor = '#2196F3';
     statusIdle.style.color = '#1565c0';
 
-    // Clear in content script as well
     chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
       if (tabs[0]) {
         chrome.tabs.sendMessage(tabs[0].id, { action: 'clearRecording' });
@@ -322,7 +368,14 @@ btnClear.addEventListener('click', () => {
   }
 });
 
-// Helper functions
+/**
+ * Activates the recording UI mode (called when recording starts).
+ *
+ * Disables inputs, shows recording status and step counter,
+ * and starts a polling interval to update the step count.
+ *
+ * @param {Object} workflow - The workflow being recorded.
+ */
 function activateRecordingMode(workflow) {
   isRecording = true;
   currentWorkflow = workflow;
@@ -341,7 +394,6 @@ function activateRecordingMode(workflow) {
   currentUrl.textContent = workflow.url;
   updateCounter(workflow.steps.length);
 
-  // Periodically update counter
   const interval = setInterval(() => {
     if (!isRecording) {
       clearInterval(interval);
@@ -360,6 +412,14 @@ function activateRecordingMode(workflow) {
   }, 500);
 }
 
+/**
+ * Deactivates the recording UI mode (called when recording stops).
+ *
+ * Shows upload/clear buttons, displays tag input, and updates status
+ * with step count.
+ *
+ * @param {Object} workflow - The completed workflow.
+ */
 function deactivateRecordingMode(workflow) {
   isRecording = false;
   currentWorkflow = workflow;
@@ -373,11 +433,9 @@ function deactivateRecordingMode(workflow) {
   workflowNameInput.disabled = true;
   workflowDescriptionInput.disabled = true;
 
-  // Reset tags for new workflow
   workflowTags = [];
   renderTags();
 
-  // Update counter
   if (workflow.steps && workflow.steps.length > 0) {
     countNumber.textContent = workflow.steps.length;
   }
@@ -392,6 +450,11 @@ function deactivateRecordingMode(workflow) {
   updateCounter(workflow.steps.length);
 }
 
+/**
+ * Updates the displayed step counter.
+ *
+ * @param {number} count - The number of steps to display.
+ */
 function updateCounter(count) {
   countNumber.textContent = count;
 }

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <!-- WorkflowsRecorder popup: recording controls, workflow naming, tags, and cloud upload. -->
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+
+<body>
+  <div id="authContainer" style="margin-bottom: 20px; border-bottom: 1px solid #eee; padding-bottom: 15px;">
+    <div id="loginForm">
+      <div style="margin-bottom: 10px;">
+        <input type="email" id="email" placeholder="Email"
+          style="width: 100%; padding: 8px; margin-bottom: 5px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px;">
+        <input type="password" id="password" placeholder="Contraseña"
+          style="width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ddd; border-radius: 4px;">
+      </div>
+      <div style="display: flex; gap: 10px;">
+        <button id="btnLogin" style="background: #2196F3; color: white; padding: 8px; margin-bottom: 0;">Entrar</button>
+        <button id="btnRegister"
+          style="background: white; color: #2196F3; border: 1px solid #2196F3; padding: 8px; margin-bottom: 0;">Registrar</button>
+      </div>
+      <div id="authMessage" style="color: red; font-size: 12px; margin-top: 5px;"></div>
+    </div>
+    <div id="userInfo" style="display: none; align-items: center; justify-content: space-between;">
+      <span id="userEmail" style="font-weight: 500; font-size: 14px; color: #333;"></span>
+      <button id="btnLogout"
+        style="width: auto; padding: 5px 10px; font-size: 12px; margin: 0; background: #607d8b; color: white;">Salir</button>
+    </div>
+  </div>
+  <h2>
+    <span style="font-size: 28px;">??</span>
+    Grabador de Workflows
+  </h2>
+
+  <div id="statusIdle" class="status idle">
+    <strong>?? Listo para grabar</strong><br>
+    Introduce los datos y presiona "Iniciar Grabación"
+  </div>
+
+  <div id="statusRecording" class="status recording" style="display: none;">
+    <strong>?? GRABANDO</strong><br>
+    Haz clic en los elementos de la página para registrarlos
+  </div>
+
+  <div class="info">
+    <strong>?? Instrucciones:</strong><br>
+    1. Introduce el nombre del flujo<br>
+    2. Haz clic en "Iniciar Grabación"<br>
+    3. Haz clic en los elementos que quieres registrar<br>
+    4. Describe cada elemento cuando se te pida<br>
+    5. Haz clic en "Detener Grabación"<br>
+    6. Sube el workflow a la nube
+  </div>
+
+  <div class="form-group">
+    <label for="workflowName">Nombre del Workflow *</label>
+    <input type="text" id="workflowName" placeholder="Ej: Tutorial de Transferencias" required>
+  </div>
+
+  <div class="form-group">
+    <label for="workflowDescription">Descripción (opcional)</label>
+    <textarea id="workflowDescription"
+      placeholder="Ej: Este tutorial te enseña a realizar una transferencia bancaria paso a paso"
+      style="width: 100%; padding: 10px; border: 2px solid #e0e0e0; border-radius: 6px; font-size: 14px; box-sizing: border-box; resize: vertical; min-height: 60px; font-family: inherit;"></textarea>
+  </div>
+
+  <div class="form-group" id="tagsGroup" style="display: none;">
+    <label for="tagsInput">Etiquetas (opcional)</label>
+    <div style="display: flex; gap: 5px; margin-bottom: 8px;">
+      <input type="text" id="tagsInput" placeholder="Escribe una etiqueta y presiona Enter" style="flex: 1;">
+    </div>
+    <div id="tagsContainer" style="display: flex; flex-wrap: wrap; gap: 6px; min-height: 30px;">
+    </div>
+    <small style="color: #666; font-size: 12px; display: block; margin-top: 5px;">
+      ?? Presiona Enter para añadir. La etiqueta "review needed" se añade automáticamente.
+    </small>
+  </div>
+
+  <div id="urlDisplay" class="url-display" style="display: none;">
+    <strong>URL:</strong> <span id="currentUrl"></span>
+  </div>
+
+  <div id="stepsCount" class="steps-count" style="display: none;">
+    <strong id="countNumber">0</strong>
+    <span>pasos grabados</span>
+  </div>
+
+  <button id="btnStart" class="btn-start">
+    ?? Iniciar Grabación
+  </button>
+
+  <button id="btnStop" class="btn-stop" style="display: none;">
+    ?? Detener Grabación
+  </button>
+
+  <button id="btnUpload" class="btn-download" style="display: none;">
+    ?? Guardar en la Nube
+  </button>
+
+  <button id="btnClear" class="btn-clear" style="display: none;">
+    ??? Nueva Grabación
+  </button>
+
+  <script src="../libs/supabase.min.js"></script>
+  <script src="../auth/supabase-client.js"></script>
+  <script src="../auth/auth.js"></script>
+  <script src="popup.js"></script>
+</body>
+
+</html>
